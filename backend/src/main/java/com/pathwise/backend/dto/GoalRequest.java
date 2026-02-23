@@ -19,5 +19,4 @@ public class GoalRequest {
     private String currency;
     private LocalDate deadline;
     private GoalPriority priority;
-    private UUID userId;
 }
