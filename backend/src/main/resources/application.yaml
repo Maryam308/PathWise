@@ -11,3 +11,7 @@ spring:
     enabled: true
   autoconfigure:
     exclude: org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000

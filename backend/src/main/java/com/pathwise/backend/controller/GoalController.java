@@ -22,8 +22,8 @@ public class GoalController {
     }
 
     @GetMapping
-    public ResponseEntity<List<GoalResponse>> getAllGoals(@RequestParam UUID userId) {
-        return ResponseEntity.ok(goalService.getAllGoals(userId));
+    public ResponseEntity<List<GoalResponse>> getAllGoals() {
+        return ResponseEntity.ok(goalService.getAllGoals());
     }
 
     @GetMapping("/{id}")
@@ -32,8 +32,9 @@ public class GoalController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<GoalResponse> updateGoal(@PathVariable UUID id,
-                                                    @RequestBody GoalRequest request) {
+    public ResponseEntity<GoalResponse> updateGoal(
+            @PathVariable UUID id,
+            @RequestBody GoalRequest request) {
         return ResponseEntity.ok(goalService.updateGoal(id, request));
     }
 
