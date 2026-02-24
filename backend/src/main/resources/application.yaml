@@ -15,3 +15,8 @@ spring:
 jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000
+
+groq:
+  api-key: ${GROQ_API_KEY}
+  url: https://api.groq.com/openai/v1/chat/completions
+  model: llama-3.1-8b-instant
