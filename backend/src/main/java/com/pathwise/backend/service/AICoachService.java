@@ -63,7 +63,6 @@ public class AICoachService {
         User currentUser = getCurrentUser();
         String userMessage = request.getMessage().trim();
 
-        // Save user message
         adviceHistoryRepository.save(AdviceHistory.builder()
                 .user(currentUser)
                 .role("USER")
@@ -78,7 +77,6 @@ public class AICoachService {
 
         String aiResponse = processMessage(state, userMessage, currentUser);
 
-        // Save AI response
         adviceHistoryRepository.save(AdviceHistory.builder()
                 .user(currentUser)
                 .role("ASSISTANT")
@@ -94,6 +92,16 @@ public class AICoachService {
     }
 
     private String processMessage(ConversationState state, String message, User user) {
+        // Allow cancel at any step
+        String lower = message.toLowerCase().trim();
+        if (!state.getStep().equals("IDLE") &&
+                (lower.equals("cancel") || lower.equals("stop") ||
+                        lower.equals("nevermind") || lower.equals("exit") ||
+                        lower.equals("quit"))) {
+            conversationSessions.remove(user.getId());
+            return "No problem! Goal creation cancelled. Feel free to ask me anything. 😊";
+        }
+
         return switch (state.getStep()) {
             case "COLLECTING_NAME" -> handleCollectingName(state, message, user);
             case "COLLECTING_AMOUNT" -> handleCollectingAmount(state, message, user);
@@ -104,7 +112,7 @@ public class AICoachService {
         };
     }
 
-    // ─── IDLE — detect intent ──────────────────────────────────────────────
+    // ─── IDLE ─────────────────────────────────────────────────────────────
 
     private String handleIdle(ConversationState state, String message, User user) {
         String lower = message.toLowerCase();
@@ -115,16 +123,21 @@ public class AICoachService {
                 lower.contains("i want to buy") ||
                 lower.contains("planning to buy") ||
                 lower.contains("want to create") ||
-                lower.contains("add a goal");
+                lower.contains("add a goal") ||
+                lower.contains("i want to save");
 
         if (wantsGoal) {
-            state.setStep("COLLECTING_NAME");
-            conversationSessions.put(user.getId(), state);
-            return "Let's set up your new goal! 🎯\n\nWhat would you like to name it? " +
-                    "For example: 'Buy a Car', 'Travel to Japan', 'Emergency Fund'";
+            // Always start fresh session
+            ConversationState freshState = ConversationState.builder()
+                    .step("COLLECTING_NAME")
+                    .build();
+            conversationSessions.put(user.getId(), freshState);
+            return "Let's set up your new goal! 🎯\n\n" +
+                    "What would you like to name it?\n" +
+                    "For example: 'Buy a Car', 'Travel to Japan', 'Emergency Fund'\n\n" +
+                    "_(Type 'cancel' at any time to stop)_";
         }
 
-        // Normal AI chat
         List<AdviceHistory> history = adviceHistoryRepository
                 .findTop10ByUserIdOrderByCreatedAtAsc(user.getId());
         List<Goal> goals = goalRepository.findByUserId(user.getId());
@@ -139,7 +152,7 @@ public class AICoachService {
         if (lower.contains("don't know") || lower.contains("not sure") ||
                 lower.contains("idk") || lower.contains("no idea") ||
                 lower.contains("suggest")) {
-            return "Here are some popular goals to inspire you:\n\n" +
+            return "Here are some popular goals in Bahrain:\n\n" +
                     "🚗 Car — Toyota Camry (~BD 8,000), Honda Accord (~BD 9,500), Tesla Model 3 (~BD 14,000)\n" +
                     "🏠 House — Apartment down payment (~BD 20,000-40,000)\n" +
                     "✈️ Travel — Japan (~BD 1,500), Europe (~BD 2,500)\n" +
@@ -154,7 +167,7 @@ public class AICoachService {
 
         return "Great choice — **" + message + "**! 💪\n\n" +
                 "How much do you need to save in total? (in BHD)\n" +
-                "If you're not sure, I can help you estimate.";
+                "If you're not sure, just say 'not sure' and I'll suggest amounts.";
     }
 
     // ─── STEP 2: Amount ───────────────────────────────────────────────────
@@ -164,8 +177,7 @@ public class AICoachService {
 
         if (lower.contains("not sure") || lower.contains("don't know") ||
                 lower.contains("help") || lower.contains("estimate")) {
-            String name = state.getGoalName().toLowerCase();
-            return suggestAmount(name);
+            return suggestAmount(state.getGoalName().toLowerCase());
         }
 
         try {
@@ -201,7 +213,7 @@ public class AICoachService {
 
             return "Deadline set to **" + message.trim() + "** 📅\n\n" +
                     "What's the priority of this goal?\n\n" +
-                    "- **HIGH** — This is urgent and important\n" +
+                    "- **HIGH** — Urgent and important\n" +
                     "- **MEDIUM** — Important but not urgent\n" +
                     "- **LOW** — Nice to have someday";
         } catch (Exception e) {
@@ -229,13 +241,38 @@ public class AICoachService {
                 "• Deadline: " + state.getDeadline() + "\n" +
                 "• Priority: " + state.getPriority() + "\n" +
                 "• Category: " + state.getCategory() + "\n\n" +
-                "Shall I create this goal for you? (Y/N)";
+                "Want to change anything? Say 'change name', 'change amount', " +
+                "'change deadline', or 'change priority'.\n\n" +
+                "Otherwise — shall I create this goal? **(Y/N)**";
     }
 
     // ─── STEP 5: Confirm ──────────────────────────────────────────────────
 
     private String handleConfirmation(ConversationState state, String message, User user) {
         String response = message.trim().toUpperCase();
+        String lower = message.toLowerCase();
+
+        // Edit fields before confirming
+        if (lower.contains("change name") || lower.contains("edit name")) {
+            state.setStep("COLLECTING_NAME");
+            conversationSessions.put(user.getId(), state);
+            return "Sure! What would you like to rename the goal?";
+        }
+        if (lower.contains("change amount") || lower.contains("edit amount")) {
+            state.setStep("COLLECTING_AMOUNT");
+            conversationSessions.put(user.getId(), state);
+            return "Sure! What's the new target amount in BHD?";
+        }
+        if (lower.contains("change deadline") || lower.contains("edit deadline")) {
+            state.setStep("COLLECTING_DEADLINE");
+            conversationSessions.put(user.getId(), state);
+            return "Sure! What's the new deadline? (YYYY-MM-DD)";
+        }
+        if (lower.contains("change priority") || lower.contains("edit priority")) {
+            state.setStep("COLLECTING_PRIORITY");
+            conversationSessions.put(user.getId(), state);
+            return "Sure! What's the new priority? (HIGH / MEDIUM / LOW)";
+        }
 
         if (response.equals("Y") || response.equals("YES")) {
             try {
@@ -253,7 +290,8 @@ public class AICoachService {
                 conversationSessions.remove(user.getId());
 
                 return "✅ Goal created! **" + state.getGoalName() + "** is now in your dashboard.\n\n" +
-                        "Would you like tips on how to reach it faster?";
+                        "💡 Want to see how long it will take to reach this goal?\n" +
+                        "Tell me your monthly savings amount and I'll calculate your timeline!";
 
             } catch (Exception e) {
                 log.error("Failed to create goal: {}", e.getMessage());
@@ -264,12 +302,12 @@ public class AICoachService {
         } else if (response.equals("N") || response.equals("NO")) {
             conversationSessions.remove(user.getId());
             return "No problem! Goal was not created. Feel free to ask me anything else. 😊";
+
         } else {
-            return "Please reply with **Y** to create the goal or **N** to cancel.";
+            return "Please reply with **Y** to create the goal or **N** to cancel.\n" +
+                    "Or say 'change name / amount / deadline / priority' to edit.";
         }
     }
-
-
 
     // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -384,22 +422,30 @@ public class AICoachService {
 
     private String buildSystemPrompt(User user, List<Goal> goals) {
         StringBuilder sb = new StringBuilder();
-        sb.append("You are PathWise, a personal AI financial coach for a Bahraini banking app. ");
-        sb.append("Always use BHD currency. Be concise, helpful, and encouraging. ");
-        sb.append("Give specific advice, not generic tips. Keep responses under 120 words.\n\n");
-        sb.append("User: ").append(user.getFullName()).append("\n");
+        sb.append("You are PathWise, a personal AI financial coach built for Bahrain. ");
+        sb.append("You understand the Bahraini financial landscape including local banks like BBK, ");
+        sb.append("Ahli United Bank, and Bank of Bahrain and Kuwait. ");
+        sb.append("You know about local savings accounts, government housing schemes (Eskan Bank), ");
+        sb.append("and typical salary ranges in Bahrain. ");
+        sb.append("Always use BHD currency. Be concise, warm, and specific — no generic advice. ");
+        sb.append("Keep responses under 120 words unless asked for detail.\n\n");
+        sb.append("User: ").append(user.getFullName()).append("\n\n");
 
         if (!goals.isEmpty()) {
-            sb.append("Goals:\n");
+            sb.append("Active goals:\n");
             for (Goal goal : goals) {
+                double progress = goal.getSavedAmount().doubleValue() /
+                        goal.getTargetAmount().doubleValue() * 100;
                 sb.append("- ").append(goal.getName())
                         .append(" | Target: BD ").append(goal.getTargetAmount())
                         .append(" | Saved: BD ").append(goal.getSavedAmount())
+                        .append(" | Progress: ").append(String.format("%.1f", progress)).append("%")
                         .append(" | Deadline: ").append(goal.getDeadline())
+                        .append(" | Priority: ").append(goal.getPriority())
                         .append(" | Status: ").append(goal.getStatus()).append("\n");
             }
         } else {
-            sb.append("User has no goals yet.\n");
+            sb.append("User has no goals yet. Gently encourage them to create their first goal.\n");
         }
 
         return sb.toString();
