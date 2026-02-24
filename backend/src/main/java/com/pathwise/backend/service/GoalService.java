@@ -116,6 +116,25 @@ public class GoalService {
         goalRepository.deleteById(id);
     }
 
+    public GoalResponse createGoalForUser(GoalRequest request, User user) {
+        Goal goal = Goal.builder()
+                .user(user)
+                .name(request.getName())
+                .category(request.getCategory())
+                .targetAmount(request.getTargetAmount())
+                .savedAmount(BigDecimal.ZERO)
+                .currency("BHD")
+                .deadline(request.getDeadline())
+                .priority(request.getPriority())
+                .status(GoalStatus.ON_TRACK)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        Goal saved = goalRepository.save(goal);
+        return toResponse(saved);
+    }
+
     private GoalResponse toResponse(Goal goal) {
         double progress = goal.getSavedAmount().doubleValue() /
                 goal.getTargetAmount().doubleValue() * 100;
