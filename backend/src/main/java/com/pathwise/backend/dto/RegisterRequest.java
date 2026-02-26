@@ -1,9 +1,6 @@
 package com.pathwise.backend.dto;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -26,4 +23,10 @@ public class RegisterRequest {
     @NotBlank(message = "Password is required")
     @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
+
+    
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "^\\+9733[2-9]\\d{6}$|^\\+9736[0-9]\\d{6}$|^\\+9733[0-9]\\d{6}$",
+            message = "Must be a valid Bahrain phone number (e.g. +97333123456 or +97366123456)")
+    private String phone;
 }

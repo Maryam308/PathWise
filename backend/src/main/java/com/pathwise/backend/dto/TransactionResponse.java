@@ -18,4 +18,5 @@ public class TransactionResponse {
     private LocalDate transactionDate;
     private String category;
     private String categoryIcon;
+    private String categoryColor;
 }

@@ -22,6 +22,7 @@ public class Report {
     @JoinColumn(name = "user_id")
     private User user;
 
+    private String title;          
     private LocalDate periodStart;
     private LocalDate periodEnd;
 
