@@ -1,21 +1,35 @@
 const BASE_URL = `${import.meta.env.VITE_BACKEND_URL}/api/auth`;
 
-
 export const authService = {
-  async register({ fullName, email, password }) {
+  async register({ fullName, email, password, monthlySalary }) {
     const res = await fetch(`${BASE_URL}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullName, email, password }),
+      body: JSON.stringify({
+        fullName,
+        email,
+        password,
+        monthlySalary: monthlySalary || 0,
+        preferredCurrency: "BHD"
+      }),
     });
 
-    const data = await res.json();
+    let data;
+    const contentType = res.headers.get('content-type');
 
-    if (!res.ok) {
-      throw new Error(data.message || "Registration failed");
+    if (contentType && contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      console.error('Non-JSON response:', text);
+      throw new Error(`Server error: ${res.status}`);
     }
 
-    return data; // { token, email, fullName, id }
+    if (!res.ok) {
+      throw new Error(data.message || data.error || "Registration failed");
+    }
+
+    return data;
   },
 
   async login({ email, password }) {
@@ -25,12 +39,21 @@ export const authService = {
       body: JSON.stringify({ email, password }),
     });
 
-    const data = await res.json();
+    let data;
+    const contentType = res.headers.get('content-type');
 
-    if (!res.ok) {
-      throw new Error(data.message || "Login failed");
+    if (contentType && contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      console.error('Non-JSON response:', text);
+      throw new Error(`Server error: ${res.status}`);
     }
 
-    return data; // { token, email, fullName, id }
+    if (!res.ok) {
+      throw new Error(data.message || data.error || "Login failed");
+    }
+
+    return data;
   },
 };
