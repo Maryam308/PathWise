@@ -28,14 +28,22 @@ public class AnalyticsService {
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
 
+    private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
+
+    // Called from controller (uses security context)
     public AnalyticsResponse getAnalytics(int months) {
-        User user = getCurrentUser();
+        return getAnalyticsForUser(getCurrentUser(), months);
+    }
+
+    // Called from scheduler / ReportService (user passed directly)
+    public AnalyticsResponse getAnalyticsForUser(User user, int months) {
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusMonths(months);
 
         List<Transaction> transactions = transactionRepository
                 .findByAccountUserIdAndTransactionDateBetween(user.getId(), start, end);
 
+        // Summary
         BigDecimal totalBalance = accountRepository.findByUserId(user.getId())
                 .map(a -> a.getBalance() != null ? a.getBalance() : BigDecimal.ZERO)
                 .orElse(BigDecimal.ZERO);
@@ -50,7 +58,7 @@ public class AnalyticsService {
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Pie chart: spending by category
+        // Pie chart — spending by category
         Map<String, BigDecimal> spendingByCategory = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.DEBIT)
                 .collect(Collectors.groupingBy(
@@ -58,15 +66,12 @@ public class AnalyticsService {
                         Collectors.reducing(BigDecimal.ZERO, Transaction::getAmount, BigDecimal::add)
                 ));
 
-        // Bar chart: monthly income vs expenses
-        DateTimeFormatter monthFmt = DateTimeFormatter.ofPattern("yyyy-MM");
+        // Bar chart — monthly breakdown
         Map<String, MonthlyData> monthlyMap = new LinkedHashMap<>();
-
         transactions.forEach(t -> {
-            String month = t.getTransactionDate().format(monthFmt);
+            String month = t.getTransactionDate().format(MONTH_FMT);
             monthlyMap.computeIfAbsent(month, m -> MonthlyData.builder()
                     .month(m).income(BigDecimal.ZERO).expenses(BigDecimal.ZERO).build());
-
             MonthlyData data = monthlyMap.get(month);
             if (t.getType() == TransactionType.CREDIT) {
                 data.setIncome(data.getIncome().add(t.getAmount()));
@@ -78,7 +83,7 @@ public class AnalyticsService {
         List<MonthlyData> monthlyBreakdown = new ArrayList<>(monthlyMap.values());
         monthlyBreakdown.sort(Comparator.comparing(MonthlyData::getMonth));
 
-        // Heatmap: daily spending
+        // Line chart — daily spending
         Map<String, BigDecimal> dailySpending = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.DEBIT)
                 .collect(Collectors.groupingBy(

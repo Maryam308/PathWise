@@ -16,11 +16,14 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -45,9 +48,25 @@ public class ReportService {
 
     private static final DateTimeFormatter TITLE_FORMAT = DateTimeFormatter.ofPattern("MMM yyyy");
 
+    // Called from controller — manual trigger kept for testing
     public Report generateReport() {
-        User user = getCurrentUser();
-        AnalyticsResponse analytics = analyticsService.getAnalytics(3);
+        return generateReportForUser(getCurrentUser());
+    }
+
+    // Called by MonthlyReportScheduler — no security context needed
+    public Report generateReportForUser(User user) {
+        log.info("Generating report for user: {}", user.getEmail());
+
+        AnalyticsResponse analytics = analyticsService.getAnalyticsForUser(user, 3);
+
+        // Calculate savings rate here since it was removed from AnalyticsResponse
+        BigDecimal savingsRate = analytics.getTotalIncome().compareTo(BigDecimal.ZERO) > 0
+                ? analytics.getTotalIncome()
+                        .subtract(analytics.getTotalExpenses())
+                        .divide(analytics.getTotalIncome(), 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100))
+                        .setScale(1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
 
         String anomalySummary = anomalyRepository
                 .findByUserIdAndIsDismissedFalseOrderByCreatedAtDesc(user.getId())
@@ -62,55 +81,69 @@ public class ReportService {
                 .map(e -> String.format("- %s: BD %.2f", e.getKey(), e.getValue()))
                 .collect(Collectors.joining("\n"));
 
+        String monthlySummary = analytics.getMonthlyBreakdown().stream()
+                .map(m -> String.format("- %s: Income BD %.2f | Expenses BD %.2f | Net BD %.2f",
+                        m.getMonth(),
+                        m.getIncome(),
+                        m.getExpenses(),
+                        m.getIncome().subtract(m.getExpenses())))
+                .collect(Collectors.joining("\n"));
+
         String prompt = String.format("""
                 Generate a concise personal finance report for the last 3 months.
-                
-                Summary:
+
+                Overall Summary:
                 - Total Balance: BD %.2f
                 - Total Income: BD %.2f
                 - Total Expenses: BD %.2f
-                - Net: BD %.2f
-                
+                - Net Savings: BD %.2f
+                - Savings Rate: %.1f%%
+
+                Monthly Breakdown:
+                %s
+
                 Spending by Category:
                 %s
-                
+
                 Active Anomalies:
                 %s
-                
-                Write a 3-4 paragraph report with:
-                1. Overall financial health summary
-                2. Key spending patterns and categories
-                3. Anomaly insights and what they mean
-                4. 2-3 specific, actionable recommendations
-                
-                Keep it professional, concise, and encouraging. Use BHD currency.
+
+                Write a professional 3-4 paragraph report covering:
+                1. Overall financial health and savings rate assessment
+                2. Key spending patterns — which categories dominate and monthly trends
+                3. Anomaly insights — what unusual spending means and potential causes
+                4. 2-3 specific, actionable recommendations to improve finances
+
+                Keep the tone encouraging and professional. Use BHD currency. Be specific with numbers.
                 """,
                 analytics.getTotalBalance(),
                 analytics.getTotalIncome(),
                 analytics.getTotalExpenses(),
                 analytics.getTotalIncome().subtract(analytics.getTotalExpenses()),
+                savingsRate,
+                monthlySummary.isEmpty() ? "No monthly data available" : monthlySummary,
                 categorySummary.isEmpty() ? "No spending data" : categorySummary,
                 anomalySummary.isEmpty() ? "No anomalies detected" : anomalySummary
         );
 
         String content = callGroq(prompt);
-
         LocalDate now = LocalDate.now();
-        String title = "Financial Report - " + now.format(TITLE_FORMAT);
 
         Report report = Report.builder()
                 .user(user)
-                .title(title)
+                .title("Financial Report - " + now.format(TITLE_FORMAT))
                 .periodStart(now.minusMonths(3))
                 .periodEnd(now)
                 .content(content)
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        return reportRepository.save(report);
+        Report saved = reportRepository.save(report);
+        log.info("✅ Report saved: {}", saved.getTitle());
+        return saved;
     }
 
-    // Returns all reports for history list (id, title, createdAt only — no content)
+    // Lightweight list for history screen — no content field
     public List<ReportSummary> getReportHistory() {
         User user = getCurrentUser();
         return reportRepository.findByUserIdOrderByCreatedAtDesc(user.getId())
@@ -119,8 +152,8 @@ public class ReportService {
                 .toList();
     }
 
-    // Returns a single full report when user clicks on it
-    public Report getReport(java.util.UUID reportId) {
+    // Full report when user clicks from history
+    public Report getReport(UUID reportId) {
         User user = getCurrentUser();
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("Report not found"));
@@ -138,17 +171,20 @@ public class ReportService {
         Map<String, Object> body = Map.of(
                 "model", groqModel,
                 "messages", List.of(Map.of("role", "user", "content", prompt)),
-                "max_tokens", 800,
+                "max_tokens", 1000,
                 "temperature", 0.7
         );
 
         try {
+            log.info("Calling Groq for report generation...");
             Map response = restTemplate.postForObject(groqUrl,
                     new HttpEntity<>(body, headers), Map.class);
             List choices = (List) response.get("choices");
             Map firstChoice = (Map) choices.get(0);
             Map msg = (Map) firstChoice.get("message");
-            return (String) msg.get("content");
+            String content = (String) msg.get("content");
+            log.info("✅ Report generated ({} chars)", content.length());
+            return content;
         } catch (Exception e) {
             log.error("Groq report generation failed: {}", e.getMessage());
             return "Report generation failed. Please try again later.";
@@ -162,6 +198,5 @@ public class ReportService {
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
-    // Lightweight summary for the history list (no content)
-    public record ReportSummary(java.util.UUID id, String title, LocalDateTime createdAt) {}
+    public record ReportSummary(UUID id, String title, LocalDateTime createdAt) {}
 }
