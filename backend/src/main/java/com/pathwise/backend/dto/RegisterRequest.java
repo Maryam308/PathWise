@@ -1,19 +1,17 @@
 package com.pathwise.backend.dto;
 
+import com.pathwise.backend.enums.ExpenseCategory;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import java.util.List;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class RegisterRequest {
 
     @NotBlank(message = "Full name is required")
-    @Pattern(regexp = "^[a-zA-Z]+(?:\\s[a-zA-Z]+)+$",
-            message = "Full name must contain at least first and last name with only letters")
-    @Size(min = 3, max = 50, message = "Full name must be between 3 and 50 characters")
+    @Size(min = 2, max = 100)
     private String fullName;
 
     @NotBlank(message = "Email is required")
@@ -21,12 +19,33 @@ public class RegisterRequest {
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
+    @Size(min = 8, message = "Password must be at least 8 characters")
     private String password;
 
-    
-    @NotBlank(message = "Phone number is required")
-    @Pattern(regexp = "^\\+9733[2-9]\\d{6}$|^\\+9736[0-9]\\d{6}$|^\\+9733[0-9]\\d{6}$",
-            message = "Must be a valid Bahrain phone number (e.g. +97333123456 or +97366123456)")
+    // Optional — stored as-is, no format enforcement for hackathon
     private String phone;
+
+    private String preferredCurrency = "BHD";
+
+    // ── REQUIRED ──────────────────────────────────────────────────────────────
+    @NotNull(message = "Monthly salary is required")
+    @DecimalMin(value = "0.01", message = "Monthly salary must be greater than zero")
+    private BigDecimal monthlySalary;
+
+    // ── OPTIONAL — null/empty = assume BD 0 expenses ─────────────────────────
+    @Valid
+    private List<ExpenseItem> monthlyExpenses;
+
+    @Data
+    public static class ExpenseItem {
+        @NotNull(message = "Expense category is required")
+        private ExpenseCategory category;
+
+        @NotNull(message = "Expense amount is required")
+        @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
+        private BigDecimal amount;
+
+        @Size(max = 100)
+        private String label;
+    }
 }

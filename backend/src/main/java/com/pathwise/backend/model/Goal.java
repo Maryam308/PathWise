@@ -18,6 +18,7 @@ import com.pathwise.backend.enums.GoalStatus;
 @AllArgsConstructor
 @Builder
 public class Goal {
+
     @Id
     @GeneratedValue
     private UUID id;
@@ -31,8 +32,17 @@ public class Goal {
     @Enumerated(EnumType.STRING)
     private GoalCategory category;
 
+    // ── Amounts ───────────────────────────────────────────────────────────────
+
+    /** The total amount the user wants to save for this goal  */
     private BigDecimal targetAmount;
+
+    /** How much the user has already saved toward this goal to date. */
     private BigDecimal savedAmount;
+
+    /** How much the user plans to save toward THIS specific goal per month. */
+    private BigDecimal monthlySavingsTarget;
+
     private String currency;
     private LocalDate deadline;
 
