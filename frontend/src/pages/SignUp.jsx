@@ -14,13 +14,9 @@ const rules = {
     (v) => (!v ? "Email is required" : null),
     (v) => (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? "Invalid email format" : null),
   ],
-  password: [
-    (v) => (!v ? "Password is required" : null),
-    (v) => (v.length < 6 ? "Password must be at least 6 characters" : null),
-  ],
-  confirmPassword: [
-    (v) => (!v ? "Please confirm your password" : null),
-    (v, all) => (v !== all.password ? "Passwords do not match" : null),
+  phone: [
+    (v) => (!v ? "Phone number is required" : null),
+    (v) => (!/^[0-9+\-\s()]{8,15}$/.test(v) ? "Enter a valid phone number" : null),
   ],
   monthlySalary: [
     (v) => {
@@ -29,6 +25,14 @@ const rules = {
       if (v < 0) return "Monthly salary cannot be negative";
       return null;
     },
+  ],
+  password: [
+    (v) => (!v ? "Password is required" : null),
+    (v) => (v.length < 6 ? "Password must be at least 6 characters" : null),
+  ],
+  confirmPassword: [
+    (v) => (!v ? "Please confirm your password" : null),
+    (v, all) => (v !== all.password ? "Passwords do not match" : null),
   ],
 };
 
@@ -39,9 +43,10 @@ const SignUp = () => {
     useAuthForm({
       fullName: "",
       email: "",
+      phone: "",
+      monthlySalary: "",
       password: "",
-      confirmPassword: "",
-      monthlySalary: "" // Add monthly salary field
+      confirmPassword: ""
     });
 
   const handleSubmit = async (e) => {
@@ -52,8 +57,9 @@ const SignUp = () => {
       const data = await authService.register({
         fullName: values.fullName,
         email: values.email,
+        phone: values.phone,
         password: values.password,
-        monthlySalary: parseFloat(values.monthlySalary) || 0, // Convert to number
+        monthlySalary: parseFloat(values.monthlySalary) || 0,
       });
       login(data);
       navigate("/dashboard");
@@ -66,9 +72,68 @@ const SignUp = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Left Panel - unchanged */}
+      {/* Left Panel */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#2c2c2c] relative overflow-hidden flex-col justify-between p-12">
-        {/* ... existing left panel content ... */}
+        <div className="absolute inset-0">
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#6b7c3f] opacity-20 rounded-full blur-3xl" />
+          <div className="absolute top-10 right-10 w-48 h-48 bg-[#6b7c3f] opacity-10 rounded-full blur-2xl" />
+          <div className="absolute top-0 left-0 w-full h-full opacity-5">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute border border-white rounded-full"
+                style={{
+                  width: `${(i + 1) * 140}px`,
+                  height: `${(i + 1) * 140}px`,
+                  bottom: "-20%",
+                  left: "20%",
+                  transform: "translate(-50%, 50%)",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10 flex items-center gap-2">
+          <div className="w-9 h-9 bg-[#6b7c3f] rounded-lg flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M3 17L9 11L13 15L21 7" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M17 7H21V11" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <span className="text-white font-bold text-xl tracking-tight">PathWise</span>
+        </div>
+
+        <div className="relative z-10 flex flex-col gap-6">
+          <h2 className="text-4xl font-black text-white leading-tight">
+            Start your path to financial clarity
+          </h2>
+          <p className="text-gray-400 leading-relaxed">
+            Join thousands of people who use PathWise to track goals, manage spending, and build a better financial future.
+          </p>
+          <div className="flex flex-col gap-3 mt-2">
+            {[
+              "Set and track financial goals",
+              "Get personalized spending insights",
+              "Visualize your financial health",
+              "Secure and private — always",
+            ].map((feature) => (
+              <div key={feature} className="flex items-center gap-3">
+                <div className="w-5 h-5 bg-[#6b7c3f] rounded-full flex items-center justify-center shrink-0">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                    <path d="M20 6L9 17l-5-5" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <p className="text-gray-300 text-sm">{feature}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10">
+          <p className="text-gray-500 text-sm italic">"A journey of a thousand miles begins with a single step."</p>
+          <p className="text-gray-600 text-xs mt-1">— Lao Tzu</p>
+        </div>
       </div>
 
       {/* Right Panel - Form */}
@@ -126,6 +191,19 @@ const SignUp = () => {
               placeholder="you@example.com"
               autoComplete="email"
             />
+
+            {/* Phone field */}
+            <InputField
+              label="Phone Number"
+              name="phone"
+              type="tel"
+              value={values.phone}
+              onChange={handleChange}
+              error={errors.phone}
+              placeholder="+973 1234 5678"
+              autoComplete="tel"
+            />
+
             <InputField
               label="Monthly Salary (BHD)"
               name="monthlySalary"
