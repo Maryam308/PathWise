@@ -1,7 +1,7 @@
 const BASE_URL = `${import.meta.env.VITE_BACKEND_URL}/api/auth`;
 
 export const authService = {
-  async register({ fullName, email, password, monthlySalary }) {
+  async register({ fullName, email, password, monthlySalary, phone }) {
     const res = await fetch(`${BASE_URL}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -10,6 +10,7 @@ export const authService = {
         email,
         password,
         monthlySalary: monthlySalary || 0,
+        phone: phone || "", // Add phone field
         preferredCurrency: "BHD"
       }),
     });
