@@ -1,197 +1,150 @@
 package com.pathwise.backend.service;
 
-import com.pathwise.backend.dto.ProjectionResponse;
 import com.pathwise.backend.dto.SimulationRequest;
 import com.pathwise.backend.dto.SimulationResponse;
 import com.pathwise.backend.exception.GoalNotFoundException;
 import com.pathwise.backend.exception.UnauthorizedAccessException;
-import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.model.Goal;
 import com.pathwise.backend.model.Simulation;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.GoalRepository;
 import com.pathwise.backend.repository.SimulationRepository;
 import com.pathwise.backend.repository.UserRepository;
+import com.pathwise.backend.service.FinancialProfileService.FinancialSnapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class SimulationService {
 
-    private final GoalRepository goalRepository;
-    private final UserRepository userRepository;
+    private final GoalRepository       goalRepository;
+    private final UserRepository       userRepository;
     private final SimulationRepository simulationRepository;
+    private final FinancialProfileService financialProfileService;
+
+    /**
+     * Called by SimulationController as: simulationService.simulate(request)
+     */
+    public SimulationResponse simulate(SimulationRequest request) {
+        User user = getCurrentUser();
+        Goal goal = getOwnedGoal(user, request.getGoalId());
+        FinancialSnapshot snap = financialProfileService.getSnapshot(user);
+
+        BigDecimal currentMonthly = request.getCurrentMonthlySavingsTarget();
+        BigDecimal remaining      = goal.getTargetAmount().subtract(goal.getSavedAmount());
+
+        // ── Baseline ──────────────────────────────────────────────────────────
+        long      baselineMonths = ceildiv(remaining, currentMonthly);
+        LocalDate baselineDate   = LocalDate.now().plusMonths(baselineMonths);
+
+        // ── Simulated ─────────────────────────────────────────────────────────
+        BigDecimal totalAdjustment = request.getSpendingAdjustments().values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal simulatedMonthly = currentMonthly.add(totalAdjustment);
+        long       simulatedMonths  = ceildiv(remaining, simulatedMonthly);
+        LocalDate  simulatedDate    = LocalDate.now().plusMonths(simulatedMonths);
+        long       monthsSaved      = baselineMonths - simulatedMonths;
+
+        // ── Affordability ─────────────────────────────────────────────────────
+        BigDecimal remainingDisposable = snap.disposableIncome().subtract(simulatedMonthly);
+        String affordabilityNote;
+        if (remainingDisposable.compareTo(BigDecimal.ZERO) < 0) {
+            affordabilityNote = String.format(
+                    "Warning: the simulated rate of BD %.2f/month would exceed your disposable " +
+                            "income of BD %.2f. This is a theoretical scenario.",
+                    simulatedMonthly, snap.disposableIncome());
+        } else {
+            affordabilityNote = String.format(
+                    "With these cuts, you would save BD %.2f/month and have BD %.2f remaining " +
+                            "from your disposable income for day-to-day spending.",
+                    simulatedMonthly, remainingDisposable);
+        }
+
+        // ── Chart data ────────────────────────────────────────────────────────
+        int chartLen = (int) Math.min(baselineMonths + 1, 37);
+        List<SimulationResponse.ChartPoint> baselineChart  = new ArrayList<>();
+        List<SimulationResponse.ChartPoint> simulatedChart = new ArrayList<>();
+        BigDecimal bCum = goal.getSavedAmount();
+        BigDecimal sCum = goal.getSavedAmount();
+        for (int i = 0; i < chartLen; i++) {
+            String month = LocalDate.now().plusMonths(i).toString();
+            baselineChart .add(new SimulationResponse.ChartPoint(month, bCum.min(goal.getTargetAmount())));
+            simulatedChart.add(new SimulationResponse.ChartPoint(month, sCum.min(goal.getTargetAmount())));
+            bCum = bCum.add(currentMonthly);
+            sCum = sCum.add(simulatedMonthly);
+        }
+
+        // ── Persist simulation ────────────────────────────────────────────────
+        simulationRepository.save(Simulation.builder()
+                .goal(goal)
+                .user(user)
+                .monthlyContribution(simulatedMonthly)
+                .projectedCompletionDate(simulatedDate)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        return SimulationResponse.builder()
+                .goalId(goal.getId()).goalName(goal.getName())
+                .targetAmount(goal.getTargetAmount()).savedAmount(goal.getSavedAmount())
+                .currentMonthlySavingsTarget(currentMonthly)
+                .baselineCompletionDate(baselineDate).baselineMonths(baselineMonths)
+                .spendingAdjustments(request.getSpendingAdjustments())
+                .totalAdjustment(totalAdjustment)
+                .simulatedMonthlySavingsTarget(simulatedMonthly)
+                .simulatedCompletionDate(simulatedDate).simulatedMonths(simulatedMonths)
+                .monthsSaved(monthsSaved)
+                .baselineChart(baselineChart).simulatedChart(simulatedChart)
+                .disposableIncome(snap.disposableIncome())
+                .remainingDisposableAfterSimulation(remainingDisposable)
+                .affordabilityNote(affordabilityNote)
+                .warningLevel(snap.warningLevel().name())
+                .build();
+    }
+
+    /**
+     * Called by SimulationController as: simulationService.getSavedSimulations(goalId)
+     */
+    public List<SimulationResponse> getSavedSimulations(UUID goalId) {
+        User user = getCurrentUser();
+        getOwnedGoal(user, goalId); // ownership check
+
+        return simulationRepository.findByGoalId(goalId).stream()
+                .map(s -> SimulationResponse.builder()
+                        .goalId(goalId)
+                        .simulatedMonthlySavingsTarget(s.getMonthlyContribution())
+                        .simulatedCompletionDate(s.getProjectedCompletionDate())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private long ceildiv(BigDecimal num, BigDecimal den) {
+        return num.divide(den, 0, RoundingMode.CEILING).longValue();
+    }
 
     private User getCurrentUser() {
-        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
-                .getAuthentication().getPrincipal();
-        return userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Authenticated user not found"));
     }
 
-    public SimulationResponse simulate(SimulationRequest request) {
-        User currentUser = getCurrentUser();
-
-        Goal goal = goalRepository.findById(request.getGoalId())
-                .orElseThrow(() -> new GoalNotFoundException(
-                        "Goal not found with id: " + request.getGoalId()));
-
-        if (!goal.getUser().getId().equals(currentUser.getId())) {
-            throw new UnauthorizedAccessException(
-                    "You don't have permission to simulate this goal");
-        }
-
-        // Validate no negative adjustments
-        request.getAdjustments().forEach((category, amount) -> {
-            if (amount.compareTo(BigDecimal.ZERO) < 0) {
-                throw new IllegalArgumentException(
-                        "Adjustment for " + category + " cannot be negative");
-            }
-        });
-
-        BigDecimal remaining = goal.getTargetAmount()
-                .subtract(goal.getSavedAmount())
-                .setScale(3, RoundingMode.HALF_UP);
-
-        // Calculate total adjustment from all sliders
-        BigDecimal totalAdjustment = request.getAdjustments().values().stream()
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // New savings rate = current + all spending cuts
-        BigDecimal newSavingsRate = request.getCurrentMonthlySavingsRate()
-                .add(totalAdjustment)
-                .setScale(3, RoundingMode.HALF_UP);
-
-        // Protect against zero or negative savings rate
-        if (newSavingsRate.compareTo(BigDecimal.ONE) < 0) {
-            newSavingsRate = BigDecimal.ONE;
-        }
-
-        // Baseline months (original rate)
-        int baselineMonths = remaining
-                .divide(request.getCurrentMonthlySavingsRate(), 0, RoundingMode.CEILING)
-                .intValue();
-
-        // Simulated months (new rate)
-        int simulatedMonths = remaining
-                .divide(newSavingsRate, 0, RoundingMode.CEILING)
-                .intValue();
-
-        int monthsSaved = baselineMonths - simulatedMonths;
-
-        LocalDate today = LocalDate.now();
-        LocalDate baselineDate = today.plusMonths(baselineMonths);
-        LocalDate simulatedDate = today.plusMonths(simulatedMonths);
-        boolean onTrack = !simulatedDate.isAfter(goal.getDeadline());
-
-        // Save simulation to database
-        Simulation simulation = Simulation.builder()
-                .user(currentUser)
-                .goal(goal)
-                .name(request.getName() != null ? request.getName() : "Simulation " + LocalDate.now())
-                .adjustments(convertAdjustments(request.getAdjustments()))
-                .baselineDate(baselineDate)
-                .simulatedDate(simulatedDate)
-                .monthsSaved(monthsSaved)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        simulationRepository.save(simulation);
-
-        // Build chart data for simulated projection
-        List<ProjectionResponse.ProjectionDataPoint> chartData =
-                buildChartData(goal, newSavingsRate, simulatedMonths);
-
-        return SimulationResponse.builder()
-                .name(simulation.getName())
-                .originalMonthlySavingsRate(request.getCurrentMonthlySavingsRate())
-                .newMonthlySavingsRate(newSavingsRate)
-                .totalAdjustment(totalAdjustment)
-                .baselineMonthsToGoal(baselineMonths)
-                .simulatedMonthsToGoal(simulatedMonths)
-                .monthsSaved(monthsSaved)
-                .baselineCompletionDate(baselineDate)
-                .simulatedCompletionDate(simulatedDate)
-                .deadline(goal.getDeadline())
-                .onTrack(onTrack)
-                .adjustments(request.getAdjustments())
-                .chartData(chartData)
-                .build();
-    }
-
-    public List<SimulationResponse> getSavedSimulations(UUID goalId) {
-        User currentUser = getCurrentUser();
-
+    private Goal getOwnedGoal(User user, UUID goalId) {
         Goal goal = goalRepository.findById(goalId)
-                .orElseThrow(() -> new GoalNotFoundException(
-                        "Goal not found with id: " + goalId));
-
-        if (!goal.getUser().getId().equals(currentUser.getId())) {
-            throw new UnauthorizedAccessException(
-                    "You don't have permission to view simulations for this goal");
-        }
-
-        return simulationRepository
-                .findByUserIdAndGoalId(currentUser.getId(), goalId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    private List<ProjectionResponse.ProjectionDataPoint> buildChartData(
-            Goal goal,
-            BigDecimal savingsRate,
-            int monthsToGoal) {
-
-        List<ProjectionResponse.ProjectionDataPoint> points = new ArrayList<>();
-        LocalDate date = LocalDate.now();
-        BigDecimal currentSavings = goal.getSavedAmount();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM yyyy");
-
-        int months = Math.min(monthsToGoal + 3, 24);
-
-        for (int i = 0; i <= months; i++) {
-            points.add(ProjectionResponse.ProjectionDataPoint.builder()
-                    .month(date.format(formatter))
-                    .projectedSavings(currentSavings
-                            .min(goal.getTargetAmount())
-                            .setScale(3, RoundingMode.HALF_UP))
-                    .targetLine(goal.getTargetAmount())
-                    .build());
-
-            currentSavings = currentSavings.add(savingsRate);
-            date = date.plusMonths(1);
-        }
-
-        return points;
-    }
-
-    private Map<String, Double> convertAdjustments(Map<String, BigDecimal> adjustments) {
-        Map<String, Double> result = new HashMap<>();
-        adjustments.forEach((k, v) -> result.put(k, v.doubleValue()));
-        return result;
-    }
-
-    private SimulationResponse toResponse(Simulation simulation) {
-        return SimulationResponse.builder()
-                .name(simulation.getName())
-                .baselineCompletionDate(simulation.getBaselineDate())
-                .simulatedCompletionDate(simulation.getSimulatedDate())
-                .monthsSaved(simulation.getMonthsSaved())
-                .build();
+                .orElseThrow(() -> new GoalNotFoundException("Goal not found: " + goalId));
+        if (!goal.getUser().getId().equals(user.getId()))
+            throw new UnauthorizedAccessException("You do not have access to this goal");
+        return goal;
     }
 }

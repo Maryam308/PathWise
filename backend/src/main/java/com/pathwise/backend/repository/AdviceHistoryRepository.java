@@ -8,5 +8,5 @@ import java.util.UUID;
 
 @Repository
 public interface AdviceHistoryRepository extends JpaRepository<AdviceHistory, UUID> {
-    List<AdviceHistory> findTop10ByUserIdOrderByCreatedAtAsc(UUID userId);
+    List<AdviceHistory> findTop10ByUserIdOrderByCreatedAtDesc(UUID userId);
 }

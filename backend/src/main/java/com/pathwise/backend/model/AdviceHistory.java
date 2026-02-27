@@ -21,6 +21,7 @@ public class AdviceHistory {
     private User user;
 
     private String role;
+    @Column(columnDefinition = "TEXT")
     private String message;
     private LocalDateTime createdAt;
 }

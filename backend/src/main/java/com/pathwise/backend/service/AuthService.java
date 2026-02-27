@@ -5,30 +5,29 @@ import com.pathwise.backend.dto.LoginRequest;
 import com.pathwise.backend.dto.RegisterRequest;
 import com.pathwise.backend.exception.EmailAlreadyExistsException;
 import com.pathwise.backend.exception.InvalidCredentialsException;
-import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.UserRepository;
 import com.pathwise.backend.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
-public class AuthService implements UserDetailsService {
+public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final FinancialProfileService financialProfileService;
 
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new EmailAlreadyExistsException("Email already exists");
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new EmailAlreadyExistsException("An account with this email already exists.");
         }
 
         User user = User.builder()
@@ -36,35 +35,44 @@ public class AuthService implements UserDetailsService {
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .phone(request.getPhone())
-                .preferredCurrency("BHD")
+                .preferredCurrency(request.getPreferredCurrency() != null
+                        ? request.getPreferredCurrency() : "BHD")
+                .monthlySalary(request.getMonthlySalary())
                 .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
 
-        User saved = userRepository.save(user);
-        String token = jwtUtil.generateToken(saved.getEmail());
-        return new AuthResponse(token, saved.getEmail(), saved.getFullName(), saved.getId());
+        user = userRepository.save(user);
+
+        // Save monthly expenses in the same transaction.
+        // If null/empty → no rows saved → expenses treated as BD 0.
+        financialProfileService.saveExpenses(user.getId(), request.getMonthlyExpenses());
+
+        String token = jwtUtil.generateToken(user.getEmail());
+
+        return AuthResponse.builder()
+                .token(token)
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .userId(user.getId())
+                .build();
     }
 
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
+                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new InvalidCredentialsException("Invalid email or password");
+            throw new InvalidCredentialsException("Invalid email or password.");
         }
 
         String token = jwtUtil.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getEmail(), user.getFullName(), user.getId());
-    }
 
-    @Override
-    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
-        return org.springframework.security.core.userdetails.User
-                .withUsername(user.getEmail())
-                .password(user.getPasswordHash())
-                .authorities("USER")
+        return AuthResponse.builder()
+                .token(token)
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .userId(user.getId())
                 .build();
     }
 }

@@ -1,17 +1,18 @@
 package com.pathwise.backend.dto;
 
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import lombok.*;
+import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class ProjectionRequest {
 
+    /**
+     * How much the user plans to save toward this goal per month.
+     * Named monthlySavingsRate to match existing ProjectionController.
+     */
     @NotNull(message = "Monthly savings rate is required")
-    @Positive(message = "Monthly savings rate must be greater than zero")
+    @DecimalMin(value = "0.01", message = "Must be greater than zero")
     private BigDecimal monthlySavingsRate;
 }

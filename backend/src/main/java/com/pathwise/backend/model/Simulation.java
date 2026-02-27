@@ -1,5 +1,5 @@
 package com.pathwise.backend.model;
-
+import java.math.BigDecimal;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -37,4 +37,6 @@ public class Simulation {
     private LocalDate simulatedDate;
     private Integer monthsSaved;
     private LocalDateTime createdAt;
+    private BigDecimal monthlyContribution;
+    private LocalDate projectedCompletionDate;
 }

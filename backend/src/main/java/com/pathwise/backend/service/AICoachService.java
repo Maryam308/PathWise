@@ -2,457 +2,245 @@ package com.pathwise.backend.service;
 
 import com.pathwise.backend.dto.ChatRequest;
 import com.pathwise.backend.dto.ChatResponse;
-import com.pathwise.backend.dto.GoalRequest;
-import com.pathwise.backend.enums.GoalCategory;
-import com.pathwise.backend.enums.GoalPriority;
-import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.model.AdviceHistory;
-import com.pathwise.backend.model.ConversationState;
+import com.pathwise.backend.exception.MessageTooLongException;
+import org.springframework.dao.DataIntegrityViolationException;
 import com.pathwise.backend.model.Goal;
+import com.pathwise.backend.model.MonthlyExpense;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.AdviceHistoryRepository;
 import com.pathwise.backend.repository.GoalRepository;
+import com.pathwise.backend.repository.MonthlyExpenseRepository;
 import com.pathwise.backend.repository.UserRepository;
+import com.pathwise.backend.service.FinancialProfileService.FinancialSnapshot;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.http.*;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AICoachService {
 
-    private final UserRepository userRepository;
-    private final GoalRepository goalRepository;
-    private final AdviceHistoryRepository adviceHistoryRepository;
-    private final GoalService goalService;
-    private final RestTemplate restTemplate;
+    private final UserRepository           userRepository;
+    private final GoalRepository           goalRepository;
+    private final AdviceHistoryRepository  adviceHistoryRepository;
+    private final MonthlyExpenseRepository expenseRepository;
+    private final FinancialProfileService  financialProfileService;
+    private final RestTemplate             restTemplate;
 
-    @Value("${groq.api-key}")
+    @Value("${groq.api.key}")
     private String groqApiKey;
 
-    @Value("${groq.url}")
-    private String groqUrl;
+    private static final String GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions";
+    private static final String MODEL      = "llama-3.1-8b-instant";
+    private static final int    MAX_TOKENS = 300;
 
-    @Value("${groq.model}")
-    private String groqModel;
-
-    private final Map<UUID, ConversationState> conversationSessions = new ConcurrentHashMap<>();
-
-    private User getCurrentUser() {
-        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
-                .getAuthentication().getPrincipal();
-        return userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
-    }
+    // ── Chat — called as aiCoachService.chat(request) ────────────────────────
 
     public ChatResponse chat(ChatRequest request) {
-        User currentUser = getCurrentUser();
-        String userMessage = request.getMessage().trim();
+        User user = getCurrentUser();
+        try {
+            saveHistory(user, "user", request.getMessage());
+        } catch (MessageTooLongException e) {
+            throw e;
+        }
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", buildSystemPrompt(user)));
+        messages.addAll(getRecentHistory(user));
+        messages.add(Map.of("role", "user", "content", request.getMessage()));
 
-        adviceHistoryRepository.save(AdviceHistory.builder()
-                .user(currentUser)
-                .role("USER")
-                .message(userMessage)
-                .createdAt(LocalDateTime.now())
-                .build());
-
-        ConversationState state = conversationSessions.getOrDefault(
-                currentUser.getId(),
-                ConversationState.builder().step("IDLE").build()
-        );
-
-        String aiResponse = processMessage(state, userMessage, currentUser);
-
-        adviceHistoryRepository.save(AdviceHistory.builder()
-                .user(currentUser)
-                .role("ASSISTANT")
-                .message(aiResponse)
-                .createdAt(LocalDateTime.now())
-                .build());
-
+        String reply = callGroq(messages);
+        try {
+            saveHistory(user, "assistant", reply);
+        } catch (MessageTooLongException e) {
+            System.err.println("Warning: Assistant reply was too long to save: " + e.getMessage());
+        }
         return ChatResponse.builder()
-                .message(aiResponse)
-                .role("ASSISTANT")
+                .message(reply)
+                .role("assistant")
                 .timestamp(LocalDateTime.now())
                 .build();
     }
 
-    private String processMessage(ConversationState state, String message, User user) {
-        // Allow cancel at any step
-        String lower = message.toLowerCase().trim();
-        if (!state.getStep().equals("IDLE") &&
-                (lower.equals("cancel") || lower.equals("stop") ||
-                        lower.equals("nevermind") || lower.equals("exit") ||
-                        lower.equals("quit"))) {
-            conversationSessions.remove(user.getId());
-            return "No problem! Goal creation cancelled. Feel free to ask me anything. 😊";
-        }
-
-        return switch (state.getStep()) {
-            case "COLLECTING_NAME" -> handleCollectingName(state, message, user);
-            case "COLLECTING_AMOUNT" -> handleCollectingAmount(state, message, user);
-            case "COLLECTING_DEADLINE" -> handleCollectingDeadline(state, message, user);
-            case "COLLECTING_PRIORITY" -> handleCollectingPriority(state, message, user);
-            case "CONFIRMING" -> handleConfirmation(state, message, user);
-            default -> handleIdle(state, message, user);
-        };
-    }
-
-    // ─── IDLE ─────────────────────────────────────────────────────────────
-
-    private String handleIdle(ConversationState state, String message, User user) {
-        String lower = message.toLowerCase();
-        boolean wantsGoal = lower.contains("create a goal") ||
-                lower.contains("new goal") ||
-                lower.contains("save for") ||
-                lower.contains("want to save") ||
-                lower.contains("i want to buy") ||
-                lower.contains("planning to buy") ||
-                lower.contains("want to create") ||
-                lower.contains("add a goal") ||
-                lower.contains("i want to save");
-
-        if (wantsGoal) {
-            // Always start fresh session
-            ConversationState freshState = ConversationState.builder()
-                    .step("COLLECTING_NAME")
-                    .build();
-            conversationSessions.put(user.getId(), freshState);
-            return "Let's set up your new goal! 🎯\n\n" +
-                    "What would you like to name it?\n" +
-                    "For example: 'Buy a Car', 'Travel to Japan', 'Emergency Fund'\n\n" +
-                    "_(Type 'cancel' at any time to stop)_";
-        }
-
-        List<AdviceHistory> history = adviceHistoryRepository
-                .findTop10ByUserIdOrderByCreatedAtAsc(user.getId());
-        List<Goal> goals = goalRepository.findByUserId(user.getId());
-        return callGroq(history, buildSystemPrompt(user, goals));
-    }
-
-    // ─── STEP 1: Name ─────────────────────────────────────────────────────
-
-    private String handleCollectingName(ConversationState state, String message, User user) {
-        String lower = message.toLowerCase();
-
-        if (lower.contains("don't know") || lower.contains("not sure") ||
-                lower.contains("idk") || lower.contains("no idea") ||
-                lower.contains("suggest")) {
-            return "Here are some popular goals in Bahrain:\n\n" +
-                    "🚗 Car — Toyota Camry (~BD 8,000), Honda Accord (~BD 9,500), Tesla Model 3 (~BD 14,000)\n" +
-                    "🏠 House — Apartment down payment (~BD 20,000-40,000)\n" +
-                    "✈️ Travel — Japan (~BD 1,500), Europe (~BD 2,500)\n" +
-                    "📚 Education — Masters degree (~BD 5,000-15,000)\n" +
-                    "🛡️ Emergency Fund — 6 months expenses (~BD 3,000-6,000)\n\n" +
-                    "Which one appeals to you? Or tell me your own idea!";
-        }
-
-        state.setGoalName(message);
-        state.setStep("COLLECTING_AMOUNT");
-        conversationSessions.put(user.getId(), state);
-
-        return "Great choice — **" + message + "**! 💪\n\n" +
-                "How much do you need to save in total? (in BHD)\n" +
-                "If you're not sure, just say 'not sure' and I'll suggest amounts.";
-    }
-
-    // ─── STEP 2: Amount ───────────────────────────────────────────────────
-
-    private String handleCollectingAmount(ConversationState state, String message, User user) {
-        String lower = message.toLowerCase();
-
-        if (lower.contains("not sure") || lower.contains("don't know") ||
-                lower.contains("help") || lower.contains("estimate")) {
-            return suggestAmount(state.getGoalName().toLowerCase());
-        }
-
-        try {
-            String cleaned = message.replaceAll("[^0-9.]", "");
-            if (cleaned.isEmpty()) throw new NumberFormatException();
-
-            BigDecimal amount = new BigDecimal(cleaned);
-            state.setTargetAmount(amount);
-            state.setStep("COLLECTING_DEADLINE");
-            conversationSessions.put(user.getId(), state);
-
-            return "BD " + amount + " — noted! 💰\n\n" +
-                    "By when do you want to achieve this goal?\n" +
-                    "Please enter a date (YYYY-MM-DD), for example: 2027-06-01";
-        } catch (Exception e) {
-            return "Please enter a valid amount in BHD, for example: **5000**";
-        }
-    }
-
-    // ─── STEP 3: Deadline ─────────────────────────────────────────────────
-
-    private String handleCollectingDeadline(ConversationState state, String message, User user) {
-        try {
-            LocalDate date = LocalDate.parse(message.trim());
-
-            if (date.isBefore(LocalDate.now())) {
-                return "That date is in the past! Please enter a future date (YYYY-MM-DD).";
-            }
-
-            state.setDeadline(message.trim());
-            state.setStep("COLLECTING_PRIORITY");
-            conversationSessions.put(user.getId(), state);
-
-            return "Deadline set to **" + message.trim() + "** 📅\n\n" +
-                    "What's the priority of this goal?\n\n" +
-                    "- **HIGH** — Urgent and important\n" +
-                    "- **MEDIUM** — Important but not urgent\n" +
-                    "- **LOW** — Nice to have someday";
-        } catch (Exception e) {
-            return "Please enter the date in YYYY-MM-DD format.\nExample: **2027-06-01**";
-        }
-    }
-
-    // ─── STEP 4: Priority ─────────────────────────────────────────────────
-
-    private String handleCollectingPriority(ConversationState state, String message, User user) {
-        String priority = message.trim().toUpperCase();
-
-        if (!List.of("HIGH", "MEDIUM", "LOW").contains(priority)) {
-            return "Please reply with **HIGH**, **MEDIUM**, or **LOW**.";
-        }
-
-        state.setPriority(priority);
-        state.setCategory(detectCategory(state.getGoalName()));
-        state.setStep("CONFIRMING");
-        conversationSessions.put(user.getId(), state);
-
-        return "Here's your goal summary 📋\n\n" +
-                "• Name: " + state.getGoalName() + "\n" +
-                "• Target: BD " + state.getTargetAmount() + "\n" +
-                "• Deadline: " + state.getDeadline() + "\n" +
-                "• Priority: " + state.getPriority() + "\n" +
-                "• Category: " + state.getCategory() + "\n\n" +
-                "Want to change anything? Say 'change name', 'change amount', " +
-                "'change deadline', or 'change priority'.\n\n" +
-                "Otherwise — shall I create this goal? **(Y/N)**";
-    }
-
-    // ─── STEP 5: Confirm ──────────────────────────────────────────────────
-
-    private String handleConfirmation(ConversationState state, String message, User user) {
-        String response = message.trim().toUpperCase();
-        String lower = message.toLowerCase();
-
-        // Edit fields before confirming
-        if (lower.contains("change name") || lower.contains("edit name")) {
-            state.setStep("COLLECTING_NAME");
-            conversationSessions.put(user.getId(), state);
-            return "Sure! What would you like to rename the goal?";
-        }
-        if (lower.contains("change amount") || lower.contains("edit amount")) {
-            state.setStep("COLLECTING_AMOUNT");
-            conversationSessions.put(user.getId(), state);
-            return "Sure! What's the new target amount in BHD?";
-        }
-        if (lower.contains("change deadline") || lower.contains("edit deadline")) {
-            state.setStep("COLLECTING_DEADLINE");
-            conversationSessions.put(user.getId(), state);
-            return "Sure! What's the new deadline? (YYYY-MM-DD)";
-        }
-        if (lower.contains("change priority") || lower.contains("edit priority")) {
-            state.setStep("COLLECTING_PRIORITY");
-            conversationSessions.put(user.getId(), state);
-            return "Sure! What's the new priority? (HIGH / MEDIUM / LOW)";
-        }
-
-        if (response.equals("Y") || response.equals("YES")) {
-            try {
-                GoalRequest goalRequest = GoalRequest.builder()
-                        .name(state.getGoalName())
-                        .category(GoalCategory.valueOf(state.getCategory()))
-                        .targetAmount(state.getTargetAmount())
-                        .savedAmount(BigDecimal.ZERO)
-                        .currency("BHD")
-                        .deadline(LocalDate.parse(state.getDeadline()))
-                        .priority(GoalPriority.valueOf(state.getPriority()))
-                        .build();
-
-                goalService.createGoalForUser(goalRequest, user);
-                conversationSessions.remove(user.getId());
-
-                return "✅ Goal created! **" + state.getGoalName() + "** is now in your dashboard.\n\n" +
-                        "💡 Want to see how long it will take to reach this goal?\n" +
-                        "Tell me your monthly savings amount and I'll calculate your timeline!";
-
-            } catch (Exception e) {
-                log.error("Failed to create goal: {}", e.getMessage());
-                conversationSessions.remove(user.getId());
-                return "Something went wrong. Please try creating the goal from your dashboard.";
-            }
-
-        } else if (response.equals("N") || response.equals("NO")) {
-            conversationSessions.remove(user.getId());
-            return "No problem! Goal was not created. Feel free to ask me anything else. 😊";
-
-        } else {
-            return "Please reply with **Y** to create the goal or **N** to cancel.\n" +
-                    "Or say 'change name / amount / deadline / priority' to edit.";
-        }
-    }
-
-    // ─── Helpers ──────────────────────────────────────────────────────────
-
-    private String suggestAmount(String goalName) {
-        if (goalName.contains("car") || goalName.contains("tesla") || goalName.contains("vehicle")) {
-            return "Here are typical car prices in Bahrain:\n\n" +
-                    "🚗 Toyota Camry — ~BD 8,000\n" +
-                    "🚗 Honda Accord — ~BD 9,500\n" +
-                    "🚗 Tesla Model 3 — ~BD 14,000\n" +
-                    "🚗 Tesla Model Y — ~BD 17,000\n\n" +
-                    "How much would you like to save?";
-        }
-        if (goalName.contains("house") || goalName.contains("apartment")) {
-            return "Typical down payments in Bahrain:\n\n" +
-                    "🏠 Studio apartment — ~BD 15,000\n" +
-                    "🏠 1-bedroom — ~BD 20,000\n" +
-                    "🏠 2-bedroom — ~BD 30,000\n\n" +
-                    "How much are you targeting?";
-        }
-        if (goalName.contains("travel") || goalName.contains("trip")) {
-            return "Typical travel budgets from Bahrain:\n\n" +
-                    "✈️ Weekend Gulf trip — ~BD 500\n" +
-                    "✈️ Japan — ~BD 1,500\n" +
-                    "✈️ Europe — ~BD 2,500\n\n" +
-                    "How much would you like to save?";
-        }
-        return "How much would you like to save in total? (enter amount in BHD)";
-    }
-
-    private String detectCategory(String goalName) {
-        String lower = goalName.toLowerCase();
-        if (lower.contains("house") || lower.contains("apartment") || lower.contains("home"))
-            return "HOUSE";
-        if (lower.contains("car") || lower.contains("tesla") || lower.contains("vehicle"))
-            return "CAR";
-        if (lower.contains("travel") || lower.contains("trip") || lower.contains("vacation"))
-            return "TRAVEL";
-        if (lower.contains("education") || lower.contains("study") || lower.contains("university"))
-            return "EDUCATION";
-        if (lower.contains("business") || lower.contains("startup"))
-            return "BUSINESS";
-        if (lower.contains("emergency") || lower.contains("fund"))
-            return "EMERGENCY_FUND";
-        return "CUSTOM";
-    }
+    // ── Weekly advice — called as aiCoachService.getWeeklyAdvice() ───────────
 
     public ChatResponse getWeeklyAdvice() {
-        User currentUser = getCurrentUser();
-        List<Goal> goals = goalRepository.findByUserId(currentUser.getId());
+        User user = getCurrentUser();
 
-        String systemPrompt = buildSystemPrompt(currentUser, goals);
-        String weeklyMessage = buildWeeklyAdvicePrompt(currentUser);
+        List<Map<String, String>> messages = List.of(
+                Map.of("role", "system", "content", buildSystemPrompt(user)),
+                Map.of("role", "user",   "content", buildCheckInPrompt(user))
+        );
 
-        List<AdviceHistory> weeklyHistory = new ArrayList<>();
-        weeklyHistory.add(AdviceHistory.builder()
-                .role("USER")
-                .message(weeklyMessage)
-                .build());
-
-        String advice = callGroq(weeklyHistory, systemPrompt);
-
-        adviceHistoryRepository.save(AdviceHistory.builder()
-                .user(currentUser)
-                .role("ASSISTANT")
-                .message(advice)
-                .createdAt(LocalDateTime.now())
-                .build());
-
+        String reply = callGroq(messages);
+        saveHistory(user, "assistant", reply);
         return ChatResponse.builder()
-                .message(advice)
-                .role("ASSISTANT")
+                .message(reply)
+                .role("assistant")
                 .timestamp(LocalDateTime.now())
                 .build();
     }
 
-    private String callGroq(List<AdviceHistory> history, String systemPrompt) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(groqApiKey);
+    // ── System Prompt ─────────────────────────────────────────────────────────
 
-            List<Map<String, String>> messages = new ArrayList<>();
-            messages.add(Map.of("role", "system", "content", systemPrompt));
+    private String buildSystemPrompt(User user) {
+        List<Goal>           goals    = goalRepository.findByUserId(user.getId());
+        List<MonthlyExpense> expenses = expenseRepository.findByUserId(user.getId());
+        FinancialSnapshot    snap     = financialProfileService.getSnapshot(user);
+        String firstName = user.getFullName().split(" ")[0];
 
-            for (AdviceHistory h : history) {
-                messages.add(Map.of(
-                        "role", h.getRole().equals("USER") ? "user" : "assistant",
-                        "content", h.getMessage()
-                ));
-            }
-
-            Map<String, Object> requestBody = Map.of(
-                    "model", groqModel,
-                    "messages", messages,
-                    "max_tokens", 500,
-                    "temperature", 0.7
-            );
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            Map response = restTemplate.postForObject(groqUrl, entity, Map.class);
-
-            List choices = (List) response.get("choices");
-            Map firstChoice = (Map) choices.get(0);
-            Map msg = (Map) firstChoice.get("message");
-            return (String) msg.get("content");
-
-        } catch (Exception e) {
-            log.error("Groq call failed: {}", e.getMessage());
-            throw new RuntimeException("AI service is currently unavailable. Please try again later.");
-        }
-    }
-
-    private String buildSystemPrompt(User user, List<Goal> goals) {
         StringBuilder sb = new StringBuilder();
-        sb.append("You are PathWise, a personal AI financial coach built for Bahrain. ");
-        sb.append("You understand the Bahraini financial landscape including local banks like BBK, ");
-        sb.append("Ahli United Bank, and Bank of Bahrain and Kuwait. ");
-        sb.append("You know about local savings accounts, government housing schemes (Eskan Bank), ");
-        sb.append("and typical salary ranges in Bahrain. ");
-        sb.append("Always use BHD currency. Be concise, warm, and specific — no generic advice. ");
-        sb.append("Keep responses under 120 words unless asked for detail.\n\n");
-        sb.append("User: ").append(user.getFullName()).append("\n\n");
 
-        if (!goals.isEmpty()) {
-            sb.append("Active goals:\n");
-            for (Goal goal : goals) {
-                double progress = goal.getSavedAmount().doubleValue() /
-                        goal.getTargetAmount().doubleValue() * 100;
-                sb.append("- ").append(goal.getName())
-                        .append(" | Target: BD ").append(goal.getTargetAmount())
-                        .append(" | Saved: BD ").append(goal.getSavedAmount())
-                        .append(" | Progress: ").append(String.format("%.1f", progress)).append("%")
-                        .append(" | Deadline: ").append(goal.getDeadline())
-                        .append(" | Priority: ").append(goal.getPriority())
-                        .append(" | Status: ").append(goal.getStatus()).append("\n");
+        sb.append("You are PathWise AI Coach — a friendly, specific, and practical personal finance ")
+                .append("assistant for users in Bahrain. You give personalised advice based on the user's ")
+                .append("real financial data below. Never give generic tips — always reference their actual ")
+                .append("numbers and goals.\n\n");
+
+        sb.append("USER: ").append(firstName)
+                .append(" | Currency: ").append(user.getPreferredCurrency());
+        if (user.getPhone() != null)
+            sb.append(" | Phone: ").append(user.getPhone());
+        sb.append("\n\n");
+
+        sb.append("FINANCIAL PROFILE:\n");
+        sb.append("  Monthly salary:           BD ").append(snap.salary()).append("\n");
+        sb.append("  Total fixed expenses:     BD ").append(snap.totalExpenses()).append("\n");
+        sb.append("  Disposable income:        BD ").append(snap.disposableIncome())
+                .append("  ← realistic savings ceiling\n");
+        sb.append("  Total savings commitment: BD ").append(snap.totalMonthlySavings()).append("\n");
+        if (snap.savingsRatePercent() != null)
+            sb.append("  Savings rate:             ")
+                    .append(String.format("%.1f%%", snap.savingsRatePercent()))
+                    .append(" of disposable income\n");
+        if (snap.warningLevel() != FinancialProfileService.WarningLevel.NONE)
+            sb.append("  ⚠ ALERT (").append(snap.warningLevel()).append("): ")
+                    .append(snap.warningMessage()).append("\n");
+
+        if (!expenses.isEmpty()) {
+            sb.append("\n  Fixed expense breakdown:\n");
+            for (MonthlyExpense e : expenses) {
+                sb.append("    ").append(e.getCategory()).append(": BD ").append(e.getAmount());
+                if (e.getLabel() != null && !e.getLabel().isBlank())
+                    sb.append(" (").append(e.getLabel()).append(")");
+                sb.append("\n");
             }
-        } else {
-            sb.append("User has no goals yet. Gently encourage them to create their first goal.\n");
         }
+
+        sb.append("\nGOALS (").append(goals.size()).append("):\n");
+        if (goals.isEmpty()) {
+            sb.append("  None yet. Encourage the user to create their first goal.\n");
+        } else {
+            for (Goal g : goals) {
+                BigDecimal rem = g.getTargetAmount().subtract(g.getSavedAmount());
+                sb.append("  ▸ ").append(g.getName())
+                        .append(" [").append(g.getStatus()).append("|").append(g.getPriority()).append("]\n");
+                sb.append("    Target BD ").append(g.getTargetAmount())
+                        .append(" | Saved BD ").append(g.getSavedAmount())
+                        .append(" | Remaining BD ").append(rem)
+                        .append(" | Deadline ").append(g.getDeadline()).append("\n");
+                if (g.getMonthlySavingsTarget() != null)
+                    sb.append("    Monthly target: BD ").append(g.getMonthlySavingsTarget()).append("\n");
+                else
+                    sb.append("    Monthly target: not set — suggest the user set one\n");
+            }
+        }
+
+        sb.append("\nBAHRAIN CONTEXT:\n");
+        sb.append("  - Always use BD (Bahraini Dinar).\n");
+        sb.append("  - Common costs: Car BD 6k–25k, Apartment down-payment BD 15k–40k, ");
+        sb.append("Japan trip BD 1.5k–3k, Emergency fund = 3–6 months of expenses.\n");
+        sb.append("  - Local banks: BBK, Ahli United Bank, NBB, Bank of Bahrain and Kuwait.\n");
+        sb.append("  - Recommended savings rate: 20–30%% of disposable income.\n");
+
+        sb.append("\nRULES:\n");
+        sb.append("  - Always call the user ").append(firstName).append(".\n");
+        sb.append("  - Reference their specific goals and amounts — never give generic advice.\n");
+        sb.append("  - If alert is RED, address it kindly but directly.\n");
+        sb.append("  - If a goal has no monthly target, suggest setting one.\n");
+        sb.append("  - Keep chat responses under 120 words.\n");
+        sb.append("  - You are a planning tool, not a licensed financial advisor.\n");
 
         return sb.toString();
     }
 
-    private String buildWeeklyAdvicePrompt(User user) {
-        return "Give " + user.getFullName() + " a weekly check-in with 3 specific tips " +
-                "based on their goals. Focus on this week. Keep it under 120 words.";
+    private String buildCheckInPrompt(User user) {
+        List<Goal>        goals = goalRepository.findByUserId(user.getId());
+        FinancialSnapshot snap  = financialProfileService.getSnapshot(user);
+        String firstName = user.getFullName().split(" ")[0];
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Give ").append(firstName).append(" a personalised weekly financial check-in. ");
+        sb.append("Disposable income: BD ").append(snap.disposableIncome())
+                .append(". Total monthly savings commitment: BD ").append(snap.totalMonthlySavings()).append(". ");
+
+        if (!goals.isEmpty()) {
+            Goal urgent = goals.get(0);
+            sb.append("Most urgent goal: '").append(urgent.getName())
+                    .append("' — BD ").append(urgent.getSavedAmount())
+                    .append(" saved of BD ").append(urgent.getTargetAmount())
+                    .append(" by ").append(urgent.getDeadline()).append(". ");
+        }
+
+        sb.append("Give exactly 3 specific, numbered, actionable tips for this week. ")
+                .append("Reference actual goals and BD amounts. Keep total under 150 words.");
+        return sb.toString();
+    }
+
+    // ── Groq API ──────────────────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private String callGroq(List<Map<String, String>> messages) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(groqApiKey);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model",      MODEL);
+        body.put("max_tokens", MAX_TOKENS);
+        body.put("messages",   messages);
+
+        try {
+            ResponseEntity<Map> res = restTemplate.postForEntity(
+                    GROQ_URL, new HttpEntity<>(body, headers), Map.class);
+            List<Map<String, Object>> choices =
+                    (List<Map<String, Object>>) res.getBody().get("choices");
+            Map<String, Object> msg = (Map<String, Object>) choices.get(0).get("message");
+            return (String) msg.get("content");
+        } catch (Exception e) {
+            throw new RuntimeException("AI Coach is temporarily unavailable. Please try again shortly.");
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private List<Map<String, String>> getRecentHistory(User user) {
+        return adviceHistoryRepository
+                .findTop10ByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+                .sorted(Comparator.comparing(AdviceHistory::getCreatedAt))
+                .map(h -> Map.of("role", h.getRole(), "content", h.getMessage())) // ← message not content
+                .collect(Collectors.toList());
+    }
+
+    private void saveHistory(User user, String role, String text) {
+        adviceHistoryRepository.save(AdviceHistory.builder()
+                .user(user)
+                .role(role)
+                .message(text)   // ← AdviceHistory uses .message not .content
+                .createdAt(LocalDateTime.now())
+                .build());
+    }
+
+    private User getCurrentUser() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Authenticated user not found"));
     }
 }

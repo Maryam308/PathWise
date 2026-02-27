@@ -8,5 +8,5 @@ import java.util.UUID;
 
 @Repository
 public interface SimulationRepository extends JpaRepository<Simulation, UUID> {
-    List<Simulation> findByUserIdAndGoalId(UUID userId, UUID goalId);
+    List<Simulation> findByGoalId(UUID goalId);
 }
