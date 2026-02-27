@@ -1,11 +1,11 @@
 package com.pathwise.backend.service;
 
-import com.pathwise.backend.exception.EmailAlreadyExistsException;
-import com.pathwise.backend.exception.InvalidCredentialsException;
-import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.dto.AuthResponse;
 import com.pathwise.backend.dto.LoginRequest;
 import com.pathwise.backend.dto.RegisterRequest;
+import com.pathwise.backend.exception.EmailAlreadyExistsException;
+import com.pathwise.backend.exception.InvalidCredentialsException;
+import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.UserRepository;
 import com.pathwise.backend.security.JwtUtil;
@@ -35,15 +35,14 @@ public class AuthService implements UserDetailsService {
                 .fullName(request.getFullName())
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .phone(request.getPhone())
                 .preferredCurrency("BHD")
                 .createdAt(LocalDateTime.now())
                 .build();
 
         User saved = userRepository.save(user);
         String token = jwtUtil.generateToken(saved.getEmail());
-
-        return new AuthResponse(token, saved.getEmail(),
-                saved.getFullName(), saved.getId());
+        return new AuthResponse(token, saved.getEmail(), saved.getFullName(), saved.getId());
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -55,16 +54,13 @@ public class AuthService implements UserDetailsService {
         }
 
         String token = jwtUtil.generateToken(user.getEmail());
-
-        return new AuthResponse(token, user.getEmail(),
-                user.getFullName(), user.getId());
+        return new AuthResponse(token, user.getEmail(), user.getFullName(), user.getId());
     }
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
-
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getEmail())
                 .password(user.getPasswordHash())

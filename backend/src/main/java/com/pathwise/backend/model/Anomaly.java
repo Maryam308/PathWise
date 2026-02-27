@@ -1,8 +1,8 @@
 package com.pathwise.backend.model;
 
+import com.pathwise.backend.enums.SeverityLevel;
 import jakarta.persistence.*;
 import lombok.*;
-import com.pathwise.backend.enums.SeverityLevel;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -37,6 +37,9 @@ public class Anomaly {
     private String message;
     private BigDecimal actualAmount;
     private BigDecimal baselineAmount;
-    private Boolean isDismissed;
+
+    @Builder.Default
+    private Boolean isDismissed = false;
+
     private LocalDateTime createdAt;
 }

@@ -12,12 +12,15 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class User {
+
     @Id
     @GeneratedValue
     private UUID id;
+
     private String fullName;
     private String email;
     private String passwordHash;
+    private String phone;
     private String preferredCurrency;
     private LocalDateTime createdAt;
 }
