@@ -22,22 +22,22 @@ public class RegisterRequest {
     @Size(min = 8, message = "Password must be at least 8 characters")
     private String password;
 
-    // Optional — stored as-is, no format enforcement for hackathon
+    @NotBlank(message = "Phone number is required")
     private String phone;
 
     private String preferredCurrency = "BHD";
 
-    // ── REQUIRED ──────────────────────────────────────────────────────────────
     @NotNull(message = "Monthly salary is required")
     @DecimalMin(value = "0.01", message = "Monthly salary must be greater than zero")
     private BigDecimal monthlySalary;
 
-    // ── OPTIONAL — null/empty = assume BD 0 expenses ─────────────────────────
+    // Optional — null/empty list means no declared expenses → disposableIncome = salary
     @Valid
     private List<ExpenseItem> monthlyExpenses;
 
     @Data
     public static class ExpenseItem {
+
         @NotNull(message = "Expense category is required")
         private ExpenseCategory category;
 
@@ -46,6 +46,6 @@ public class RegisterRequest {
         private BigDecimal amount;
 
         @Size(max = 100)
-        private String label;
+        private String label;   // optional e.g. "Seef apartment", "Netflix + Shahid"
     }
 }

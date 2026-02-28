@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDateTime;
 
 @Service
@@ -26,32 +27,36 @@ public class AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
 
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new EmailAlreadyExistsException("An account with this email already exists.");
+        // Normalise email to lowercase to prevent duplicate accounts
+        // differing only by case (e.g. User@example.com vs user@example.com)
+        String email = request.getEmail().trim().toLowerCase();
+
+        if (userRepository.existsByEmail(email)) {
+            throw new EmailAlreadyExistsException(
+                    "An account with this email already exists.");
         }
 
         User user = User.builder()
-                .fullName(request.getFullName())
-                .email(request.getEmail())
+                .fullName(request.getFullName().trim())
+                .email(email)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .phone(request.getPhone())
+                .phone(request.getPhone())                           // optional, may be null
                 .preferredCurrency(request.getPreferredCurrency() != null
                         ? request.getPreferredCurrency() : "BHD")
-                .monthlySalary(request.getMonthlySalary())
+                .monthlySalary(request.getMonthlySalary())           // @NotNull enforced by Bean Validation
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
         user = userRepository.save(user);
 
-        // Save monthly expenses in the same transaction.
-        // If null/empty → no rows saved → expenses treated as BD 0.
+        // Save monthly expenses in the same @Transactional scope.
+        // If monthlyExpenses is null or empty → nothing saved → expenses = BD 0.
+        // Rolls back together with the user save if anything fails.
         financialProfileService.saveExpenses(user.getId(), request.getMonthlyExpenses());
 
-        String token = jwtUtil.generateToken(user.getEmail());
-
         return AuthResponse.builder()
-                .token(token)
+                .token(jwtUtil.generateToken(user.getEmail()))
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .userId(user.getId())
@@ -59,17 +64,19 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
+        String email = request.getEmail().trim().toLowerCase();
+
+        // Same generic error for wrong email AND wrong password intentionally —
+        // prevents user enumeration attacks.
+        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new InvalidCredentialsException("Invalid email or password.");
         }
 
-        String token = jwtUtil.generateToken(user.getEmail());
-
         return AuthResponse.builder()
-                .token(token)
+                .token(jwtUtil.generateToken(user.getEmail()))
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .userId(user.getId())
