@@ -18,32 +18,33 @@ public class User {
     @GeneratedValue
     private UUID id;
 
+    @Column(nullable = false)
     private String fullName;
 
     @Column(unique = true, nullable = false)
     private String email;
 
+    @Column(nullable = false)
     private String passwordHash;
 
     @Column(nullable = false)
-    private String phone;
+    private String phone;               // required at registration
 
-    private String preferredCurrency;   // default "BHD"
+    @Column(nullable = false)
+    @Builder.Default
+    private String preferredCurrency = "BHD";
 
     /**
-     * Monthly net salary in BHD. Required at registration.
-     *
-     * This is the foundation of all financial calculations in Feature 2:
-     *
-     *   disposableIncome  =  monthlySalary  -  SUM(monthly_expenses.amount)
-     *   savingsRate%      =  SUM(goals.monthlySavingsTarget) / disposableIncome * 100
-     *
-     * If user declares no expenses, disposableIncome = monthlySalary (safe default).
-     * Used by FinancialProfileService, AICoachService, ProjectionService, SimulationService.
+     * Required at registration. Foundation of all savings calculations:
+     *   disposableIncome = monthlySalary - SUM(monthly_expenses)
+     *   savingsRate%     = SUM(goals.monthlySavingsTarget) / disposableIncome * 100
      */
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal monthlySalary;
 
+    @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;    // added — was missing from original
+
+    @Column(nullable = false)
+    private LocalDateTime updatedAt;
 }
