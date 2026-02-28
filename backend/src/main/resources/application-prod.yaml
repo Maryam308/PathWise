@@ -25,3 +25,39 @@ spring:
     enabled: true
     baseline-on-migrate: true
     validate-on-migrate: true
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+
+# Groq AI Configuration
+groq:
+  api-key: ${GROQ_API_KEY}
+  url: https://api.groq.com/openai/v1/chat/completions
+  model: llama-3.1-8b-instant
+
+# Plaid Configuration
+plaid:
+  client-id: ${PLAID_CLIENT_ID}
+  secret: ${PLAID_SECRET}
+  env: ${PLAID_ENV:sandbox}
+
+# CORS Configuration
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+# Swagger/OpenAPI - Disabled in Production
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# Logging
+logging:
+  level:
+    root: WARN
+    com.pathwise: INFO
+    org.springframework.web: ERROR
+    org.hibernate: ERROR
