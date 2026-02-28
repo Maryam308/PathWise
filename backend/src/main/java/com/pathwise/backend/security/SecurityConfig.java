@@ -21,8 +21,13 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {  // Remove JwtAuthFilter from parameters
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // ── CORS is handled by the CorsFilter bean in CorsConfig ──
+                // Spring Security must be told to defer to it, otherwise it
+                // blocks OPTIONS preflight before the filter even runs.
+                .cors(cors -> {})
+
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints - Authentication
@@ -47,7 +52,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);  // Use the field
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
