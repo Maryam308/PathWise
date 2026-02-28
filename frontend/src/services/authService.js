@@ -3,7 +3,7 @@ const API_BASE = import.meta.env.VITE_BACKEND_URL;
 /* ================= AUTH ================= */
 
 export const authService = {
-  async register({ fullName, email, password, monthlySalary, phone }) {
+  async register({ fullName, email, password, monthlySalary, phone, monthlyExpenses }) {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -14,15 +14,12 @@ export const authService = {
         monthlySalary: monthlySalary || 0,
         phone: phone || "",
         preferredCurrency: "BHD",
+        monthlyExpenses: monthlyExpenses || [],
       }),
     });
 
     const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.message || data.error || "Registration failed");
-    }
-
+    if (!res.ok) throw new Error(data.message || data.error || "Registration failed");
     return data;
   },
 
@@ -34,58 +31,8 @@ export const authService = {
     });
 
     const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.message || data.error || "Login failed");
-    }
-
+    if (!res.ok) throw new Error(data.message || data.error || "Login failed");
     return data;
-  },
-};
-
-/* ================= GOALS ================= */
-
-export const goalService = {
-  getAll: async (token) => {
-    const res = await fetch(`${API_BASE}/api/goals`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error("Failed to fetch goals");
-    return res.json();
-  },
-
-  create: async (token, data) => {
-    const res = await fetch(`${API_BASE}/api/goals`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("Failed to create goal");
-    return res.json();
-  },
-
-  update: async (token, id, data) => {
-    const res = await fetch(`${API_BASE}/api/goals/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("Failed to update goal");
-    return res.json();
-  },
-
-  remove: async (token, id) => {
-    const res = await fetch(`${API_BASE}/api/goals/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error("Failed to delete goal");
   },
 };
 
@@ -98,5 +45,19 @@ export const profileService = {
     });
     if (!res.ok) throw new Error("Failed to fetch profile");
     return res.json();
+  },
+
+  updateProfile: async (token, data) => {
+    const res = await fetch(`${API_BASE}/api/profile`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || "Failed to update profile");
+    return body;
   },
 };
