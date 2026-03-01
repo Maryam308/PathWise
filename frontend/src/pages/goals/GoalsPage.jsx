@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { goalService } from "../../services/goalService.js";
+import { expenseService } from "../../services/authService.js";
 import Navbar from "../../components/common/Navbar.jsx";
 import Footer from "../../components/common/Footer.jsx";
 import GoalsHeader from "../../components/goals/GoalsHeader.jsx";
@@ -42,9 +43,10 @@ const GoalsPage = () => {
   const { token } = useAuth();
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const [goals, setGoals]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
+  const [goals, setGoals]             = useState([]);
+  const [userExpenses, setUserExpenses] = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [activeFilter, setActiveFilter] = useState("ALL");
@@ -70,8 +72,12 @@ const GoalsPage = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await goalService.getAll(token);
+      const [data, expenses] = await Promise.all([
+        goalService.getAll(token),
+        expenseService.getAll(token).catch(() => []), // non-fatal
+      ]);
       setGoals(data);
+      setUserExpenses(expenses);
     } catch (err) {
       setError("Failed to load goals. Please try again.");
     } finally {
@@ -130,11 +136,12 @@ const GoalsPage = () => {
   };
 
   const handleDelete = async (goalId) => {
+    const goalName = goals.find((g) => g.id === goalId)?.name || "goal";
     try {
       await goalService.remove(token, goalId);
       setGoals((prev) => prev.filter((g) => g.id !== goalId));
-    } catch {
-      setError("Failed to delete goal.");
+    } catch (err) {
+      setError(`Failed to delete "${goalName}": ${err.message || "Please try again."}`);
     }
     setDeleteConfirm(null);
   };
@@ -258,6 +265,15 @@ const GoalsPage = () => {
         editingGoal={editingGoal}
         loading={goalModalLoading}
         serverError={goalModalError}
+        maxAllocatable={(() => {
+          const snap = goals[0];
+          if (!snap) return null;
+          const disposable = parseFloat(snap.disposableIncome || 0);
+          const committed  = parseFloat(snap.totalMonthlyCommitment || 0);
+          // When editing, exclude the goal's own current monthly target
+          const ownTarget  = editingGoal ? parseFloat(editingGoal.monthlySavingsTarget || 0) : 0;
+          return Math.max(0, disposable - committed + ownTarget);
+        })()}
       />
 
       {/* Delete confirmation */}
@@ -296,12 +312,18 @@ const GoalsPage = () => {
       {simulationGoal && (
         <SimulationModal
           goal={simulationGoal}
+          userExpenses={userExpenses}
           onClose={() => setSimulationGoal(null)}
         />
       )}
 
       {/* AI Coach */}
-      <AICoachWidget />
+      <AICoachWidget
+        goals={goals}
+        onGoalCreated={(created) => setGoals((prev) => [created, ...prev])}
+        onGoalUpdated={(updated) => setGoals((prev) => prev.map((g) => g.id === updated.id ? updated : g))}
+        onGoalDeleted={(id) => setGoals((prev) => prev.filter((g) => g.id !== id))}
+      />
     </div>
   );
 };
