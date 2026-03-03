@@ -6,6 +6,7 @@ import LandingPage from "./pages/LandingPage.jsx";
 import Login from "./pages/Login.jsx";
 import SignUp from "./pages/SignUp.jsx";
 import GoalsPage from "./pages/goals/GoalsPage.jsx";
+import { GoalsProvider } from "./context/GoalsContext.jsx";
 
 // Placeholder dashboard — replace with real Dashboard later
 const Dashboard = () => (
@@ -37,7 +38,9 @@ function App() {
             path="/goals"
             element={
               <ProtectedRoute>
-                <GoalsPage />
+               <GoalsProvider>
+                               <GoalsPage />
+                             </GoalsProvider>
               </ProtectedRoute>
             }
           />
