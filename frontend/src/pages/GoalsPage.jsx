@@ -1,17 +1,17 @@
 import { useState }            from "react";
-import { useGoals }             from "../../context/GoalsContext.jsx";
-import Navbar                   from "../../components/common/Navbar.jsx";
-import Footer                   from "../../components/common/Footer.jsx";
-import GoalsHeader              from "../../components/goals/GoalsHeader.jsx";
-import GoalCard                 from "../../components/goals/GoalCard.jsx";
-import GoalFilters              from "../../components/goals/GoalFilters.jsx";
-import GoalModal                from "../../components/goals/GoalModal.jsx";
-import ProjectionModal          from "../../components/goals/ProjectionModal.jsx";
-import SimulationModal          from "../../components/goals/SimulationModal.jsx";
-import DeleteConfirmModal       from "../../components/goals/DeleteConfirmModal.jsx";
-import AICoachWidget            from "../../components/goals/AICoachWidget.jsx";
-import { ITEMS_PER_PAGE }       from "../../constants/goals.js";
-import { deadlineMs }           from "../../utils/formatters.js";
+import { useGoals }             from "../context/GoalsContext.jsx";
+import Navbar                   from "../components/common/Navbar.jsx";
+import Footer                   from "../components/common/Footer.jsx";
+import GoalsHeader              from "../components/goals/GoalsHeader.jsx";
+import GoalCard                 from "../components/goals/GoalCard.jsx";
+import GoalFilters              from "../components/goals/GoalFilters.jsx";
+import GoalModal                from "../components/goals/GoalModal.jsx";
+import ProjectionModal          from "../components/goals/ProjectionModal.jsx";
+import SimulationModal          from "../components/goals/SimulationModal.jsx";
+import DeleteConfirmModal       from "../components/goals/DeleteConfirmModal.jsx";
+import AICoachWidget            from "../components/goals/AICoachWidget.jsx";
+import { ITEMS_PER_PAGE }       from "../constants/goals.js";
+import { deadlineMs }           from "../utils/formatters.js";
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 const EmptyState = ({ filter, onNewGoal }) => (
