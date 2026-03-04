@@ -5,8 +5,7 @@ import { authService } from "../services/authService.js";
 import { useAuthForm } from "../hooks/useAuthForm.js";
 import InputField from "../components/auth/InputField.jsx";
 
-// Values must match backend ExpenseCategory enum exactly:
-// HOUSING, TRANSPORT, FOOD, UTILITIES, INSURANCE, SUBSCRIPTIONS, EDUCATION, HEALTHCARE, FAMILY, OTHER
+
 const EXPENSE_CATEGORIES = [
   { value: "HOUSING",       label: "Rent / Mortgage", icon: "🏠" },
   { value: "TRANSPORT",     label: "Transport",        icon: "🚗" },
@@ -30,10 +29,10 @@ const rules = {
     (v) => (!v ? "Email is required" : null),
     (v) => (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? "Invalid email format" : null),
   ],
-  phone: [
-    (v) => (!v ? "Phone number is required" : null),
-    (v) => (!/^[0-9+\-\s()]{8,15}$/.test(v) ? "Enter a valid phone number" : null),
-  ],
+phone: [
+  (v) => (!v ? "Phone number is required" : null),
+  (v) => (!/^[0-9]{8}$/.test(v) ? "Phone number must be exactly 8 digits" : null),
+],
   monthlySalary: [
     (v) => {
       if (!v && v !== 0) return "Monthly salary is required";
@@ -173,35 +172,53 @@ const SignUp = () => {
   const salary = parseFloat(values.monthlySalary) || 0;
   const disposable = salary - totalExpenses;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validate(step1Rules)) return;
-    setLoading(true);
-    try {
-      const monthlyExpenses = expenses
-        .filter((e) => e.amount && parseFloat(e.amount) > 0)
-        .map((e) => ({
-          category: e.category,
-          label: e.label || null,
-          amount: parseFloat(e.amount),
-        }));
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!validate(step1Rules)) return;
 
-      const data = await authService.register({
-        fullName: values.fullName,
-        email: values.email,
-        phone: values.phone,
-        password: values.password,
-        monthlySalary: parseFloat(values.monthlySalary) || 0,
-        monthlyExpenses,
-      });
-      login(data);
-      navigate("/dashboard");
-    } catch (err) {
-      setServerError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Check for duplicate categories
+  const categories = expenses.map(e => e.category);
+  const uniqueCategories = new Set(categories);
+  if (uniqueCategories.size !== categories.length) {
+    setServerError("Cannot have multiple expenses with the same category");
+    return;
+  }
+
+  // Validate expenses don't exceed salary
+  const salary = parseFloat(values.monthlySalary) || 0;
+  const totalExpenses = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+  if (totalExpenses > salary) {
+    setServerError(`Total expenses (BD ${totalExpenses.toFixed(3)}) cannot exceed monthly salary (BD ${salary.toFixed(3)})`);
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const monthlyExpenses = expenses
+      .filter((e) => e.amount && parseFloat(e.amount) > 0)
+      .map((e) => ({
+        category: e.category,
+        label: e.label || null,
+        amount: parseFloat(e.amount),
+      }));
+
+    const data = await authService.register({
+      fullName: values.fullName,
+      email: values.email,
+      phone: values.phone,
+      password: values.password,
+      monthlySalary: parseFloat(values.monthlySalary) || 0,
+      monthlyExpenses,
+    });
+    login(data);
+    navigate("/dashboard");
+  } catch (err) {
+    setServerError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gray-50 flex">

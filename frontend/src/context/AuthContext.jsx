@@ -12,8 +12,8 @@ export const AuthProvider = ({ children }) => {
   const [loggingOut, setLoggingOut] = useState(false);
 
   const login = useCallback((authResponse) => {
-    const { token, email, fullName, id } = authResponse;
-    const userData = { email, fullName, id };
+    const { token, email, fullName, id, phone } = authResponse;
+    const userData = { email, fullName, id, phone };
     setToken(token);
     setUser(userData);
     localStorage.setItem("pathwise_token", token);

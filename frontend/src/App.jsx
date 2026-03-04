@@ -5,9 +5,9 @@ import Navbar from "./components/common/Navbar.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import Login from "./pages/Login.jsx";
 import SignUp from "./pages/SignUp.jsx";
-import GoalsPage from "./pages/goals/GoalsPage.jsx";
+import GoalsPage from "./pages/GoalsPage.jsx";
 import { GoalsProvider } from "./context/GoalsContext.jsx";
-
+import ProfilePage from "./pages/ProfilePage.jsx";
 // Placeholder dashboard — replace with real Dashboard later
 const Dashboard = () => (
   <div className="min-h-screen bg-gray-50">
@@ -26,6 +26,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route
             path="/dashboard"
             element={
