@@ -1,9 +1,16 @@
 const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
   const totalSaved = goals.reduce((sum, g) => sum + (parseFloat(g.savedAmount) || 0), 0);
   const activeGoals = goals.filter((g) => g.status !== "COMPLETED").length;
+  // Parse deadline to a sortable number without UTC shift
+  const deadlineMs = (d) => {
+    if (!d) return Infinity;
+    if (Array.isArray(d)) return new Date(d[0], d[1] - 1, d[2]).getTime();
+    const p = String(d).split("-").map(Number);
+    return p.length >= 3 ? new Date(p[0], p[1]-1, p[2]).getTime() : new Date(p[0], p[1]-1, 1).getTime();
+  };
   const closestDeadline = goals
     .filter((g) => g.status !== "COMPLETED" && g.deadline)
-    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))[0];
+    .sort((a, b) => deadlineMs(a.deadline) - deadlineMs(b.deadline))[0];
 
   // Financial data comes from any goal response (all carry the same snapshot)
   const snapshot = goals[0] || {};
@@ -23,8 +30,19 @@ const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
       ? `BD ${(v / 1000).toFixed(1)}K`
       : `BD ${v.toLocaleString("en-BH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-  const formatDeadline = (d) =>
-    new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  // Parse date parts directly to avoid UTC-to-local timezone shift.
+  // e.g. "2027-11-04" via new Date() is UTC midnight → shifts to Nov 3 in UTC+3 (Bahrain).
+  const formatDeadline = (d) => {
+    if (!d) return "—";
+    if (Array.isArray(d)) {
+      const [y, m, day] = d; // Jackson [year, month, day], month is 1-based
+      return new Date(y, m - 1, day).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    }
+    const parts = String(d).split("-").map(Number);
+    if (parts.length >= 3) return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    if (parts.length === 2) return new Date(parts[0], parts[1] - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    return String(d);
+  };
 
   return (
     <div>
