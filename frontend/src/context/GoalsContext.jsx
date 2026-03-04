@@ -30,6 +30,15 @@ export const GoalsProvider = ({ children }) => {
 
   const [goals,    setGoals]    = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [financialSnapshot, setFinancialSnapshot] = useState({
+    disposableIncome: 0,
+    totalMonthlyCommitment: 0,
+    monthlySalary: 0,
+    totalMonthlyExpenses: 0,
+    savingsRatePercent: null,
+    warningLevel: "NONE",
+    warningMessage: ""
+  });
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
   const [mutating, setMutating] = useState(false);
@@ -41,16 +50,24 @@ export const GoalsProvider = ({ children }) => {
       setLoading(true);
       setError(null);
 
-      // Both calls go through the service layer — no fetch() here.
-      // Expenses are non-fatal: if the call fails we keep an empty array
-      // rather than breaking the whole page.
-      const [goalsData, expensesData] = await Promise.all([
-        goalService.getAll(token),
+      // Fetch goals, expenses, and financial snapshot in parallel
+      const [goalsData, expensesData, snapshotData] = await Promise.all([
+        goalService.getAll(token).catch(() => []),
         goalService.getExpenses(token).catch(() => []),
+        goalService.getFinancialSnapshot(token).catch(() => ({
+          disposableIncome: 0,
+          totalMonthlyCommitment: 0,
+          monthlySalary: 0,
+          totalMonthlyExpenses: 0,
+          savingsRatePercent: null,
+          warningLevel: "NONE",
+          warningMessage: ""
+        })),
       ]);
 
       setGoals(goalsData);
       setExpenses(expensesData);
+      setFinancialSnapshot(snapshotData);
     } catch (err) {
       setError(err.message || "Failed to load goals.");
     } finally {
@@ -59,34 +76,6 @@ export const GoalsProvider = ({ children }) => {
   }, [token]);
 
   useEffect(() => { fetchGoals(); }, [fetchGoals]);
-
-  // ── Derived: financial snapshot ───────────────────────────────────────────
-  // The backend attaches disposableIncome / totalMonthlyCommitment to every
-  // goal response (FinancialProfileService). We read it from the first goal,
-  // or fall back to a client-side sum so GoalModal always has something to
-  // work with even when no goals have been loaded yet.
-  const financialSnapshot = (() => {
-    const ref = goals[0];
-    if (ref?.disposableIncome != null) {
-      return {
-        disposableIncome:       parseFloat(ref.disposableIncome       || 0),
-        totalMonthlyCommitment: parseFloat(ref.totalMonthlyCommitment || 0),
-        warningLevel:           ref.warningLevel   || "NONE",
-        warningMessage:         ref.warningMessage || "",
-      };
-    }
-    // Fallback: sum the goals we already have in memory
-    const committed = goals.reduce(
-      (acc, g) => acc + parseFloat(g.monthlySavingsTarget || 0),
-      0
-    );
-    return {
-      disposableIncome:       null,
-      totalMonthlyCommitment: committed,
-      warningLevel:           "NONE",
-      warningMessage:         "",
-    };
-  })();
 
   // ── Derived: max allocatable ──────────────────────────────────────────────
   // Pass `editingGoalMonthly` when editing an existing goal so its current

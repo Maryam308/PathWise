@@ -69,7 +69,7 @@ const GoalsPage = () => {
     loading, error, mutating,
     refreshGoals,
     createGoal, updateGoal, deleteGoal,
-    maxAllocatable,
+    maxAllocatable,  financialSnapshot,
   } = useGoals();
 
   // ── Local UI state ────────────────────────────────────────────────────────
@@ -156,7 +156,12 @@ const GoalsPage = () => {
       <Navbar />
 
       <main className="flex-1 pt-[64px]">
-        <GoalsHeader goals={goals} onNewGoal={openCreate} onViewProjections={() => {}} />
+        <GoalsHeader
+          goals={goals}
+          onNewGoal={openCreate}
+          onViewProjections={() => {}}
+          financialSnapshot={financialSnapshot}
+        />
 
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="flex flex-col gap-4 mb-8">
