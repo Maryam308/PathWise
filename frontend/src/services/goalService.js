@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_BACKEND_URL;
+
 /**
  * Helper function to format deadline to YYYY-MM
  */
@@ -37,6 +38,28 @@ const formatDeadline = (deadline) => {
  *   import { goalService } from "../services/goalService.js";
  */
 export const goalService = {
+  /**
+   * Fetch the user's financial snapshot (disposable income, etc.)
+   * This is needed when there are no goals to get the financial data.
+   */
+  getFinancialSnapshot: async (token) => {
+    const res = await fetch(`${API_BASE}/api/goals/snapshot`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || "Failed to fetch financial snapshot");
+
+    return {
+      disposableIncome: parseFloat(data.disposableIncome || 0),
+      totalMonthlyCommitment: parseFloat(data.totalMonthlySavings || 0),
+      monthlySalary: parseFloat(data.salary || 0),
+      totalMonthlyExpenses: parseFloat(data.totalExpenses || 0),
+      savingsRatePercent: data.savingsRatePercent,
+      warningLevel: data.warningLevel || "NONE",
+      warningMessage: data.warningMessage || ""
+    };
+  },
+
   /**
    * Fetch all goals for the authenticated user.
    */

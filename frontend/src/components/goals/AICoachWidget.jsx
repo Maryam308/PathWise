@@ -144,18 +144,32 @@ const AICoachWidget = () => {
   const { token }   = useAuth();
   const { goals, createGoal, updateGoal, deleteGoal, financialSnapshot } = useGoals();
 
-  const WELCOME = {
-    role: "assistant",
-    content:
-      "Hi! I'm your PathWise AI Coach 🤖\n\n" +
+const WELCOME = {
+  role: "assistant",
+  content: (() => {
+    const disposable = financialSnapshot?.disposableIncome;
+    const hasNoDisposable = disposable !== null && disposable <= 0;
+
+    let baseMessage = "Hi! I'm your PathWise AI Coach 🤖\n\n" +
       "I know your goals and finances. You can:\n" +
       "• Ask how you're doing\n" +
       "• Say \"Create a goal\" and I'll walk you through it step by step\n" +
       "• Ask me to delete or update a goal\n" +
-      "• Get savings advice\n\n" +
-      "What would you like to do?",
-    timestamp: new Date().toISOString(),
-  };
+      "• Get savings advice\n\n";
+
+    if (hasNoDisposable) {
+      baseMessage += "⚠️ **Note:** Your disposable income is currently 0, meaning your expenses equal or exceed your salary. " +
+        "I recommend:\n" +
+        "• Reviewing your fixed expenses in Profile → My Information\n" +
+        "• Considering ways to reduce spending before creating new goals\n" +
+        "• If you have existing goals, you may need to adjust their monthly targets\n\n";
+    }
+
+    baseMessage += "What would you like to do?";
+    return baseMessage;
+  })(),
+  timestamp: new Date().toISOString(),
+};
 
   const [open,          setOpen]          = useState(false);
   const [messages,      setMessages]      = useState(() => loadMessages() || [WELCOME]);

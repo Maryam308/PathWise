@@ -1,21 +1,23 @@
 import { formatBDAmount, formatBDShort, formatDeadline, deadlineMs } from "../../utils/formatters.js";
 
-const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
+const GoalsHeader = ({ goals, onNewGoal, onViewProjections, financialSnapshot }) => {
   const totalSaved   = goals.reduce((sum, g) => sum + (parseFloat(g.savedAmount) || 0), 0);
   const activeGoals  = goals.filter((g) => g.status !== "COMPLETED").length;
   const closestGoal  = goals
     .filter((g) => g.status !== "COMPLETED" && g.deadline)
     .sort((a, b) => deadlineMs(a.deadline) - deadlineMs(b.deadline))[0];
 
-  // Financial snapshot — all goal responses carry the same fields
-  const snapshot        = goals[0] || {};
-  const disposable      = parseFloat(snapshot.disposableIncome || 0);
-  const totalCommitment = parseFloat(snapshot.totalMonthlyCommitment || 0);
-  const salary          = parseFloat(snapshot.monthlySalary || 0);
-  const totalExpenses   = parseFloat(snapshot.totalMonthlyExpenses || 0);
+  // Use financialSnapshot prop instead of trying to get it from goals
+  const disposable      = parseFloat(financialSnapshot?.disposableIncome || 0);
+  const totalCommitment = parseFloat(financialSnapshot?.totalMonthlyCommitment || 0);
+  const salary          = parseFloat(financialSnapshot?.monthlySalary || 0);
+  const totalExpenses   = parseFloat(financialSnapshot?.totalMonthlyExpenses || 0);
   const availableToSave = Math.max(0, disposable - totalCommitment);
-  const savingsRate     = snapshot.savingsRatePercent;
-  const warningLevel    = snapshot.warningLevel;
+  const savingsRate     = financialSnapshot?.savingsRatePercent;
+  const warningLevel    = financialSnapshot?.warningLevel;
+
+  // Check if user has no remaining amount to allocate to new goals
+  const hasNoRemainingAllocatable = availableToSave <= 0;
 
   return (
     <div>
@@ -32,9 +34,32 @@ const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
           <p className="text-gray-400 text-sm max-w-xl leading-relaxed mb-8">
             Track every goal, simulate spending scenarios, and let your AI coach guide you to milestones faster.
           </p>
+
+          {/* Warning message when no remaining amount to allocate */}
+          {hasNoRemainingAllocatable && (
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-3">
+              <span className="text-amber-400 text-lg shrink-0 mt-0.5">⚠️</span>
+              <div>
+                <p className="text-amber-400 text-sm font-bold">No disposable income available for new goals</p>
+                <p className="text-amber-400/70 text-xs mt-0.5">
+                  Your expenses plus existing goal commitments fully consume your salary.
+                  Consider reducing expenses or adjusting existing goal targets before creating new goals.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3">
-            <button onClick={onNewGoal}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#6b7c3f] hover:bg-[#5a6a33] text-white text-sm font-bold rounded-xl transition-all shadow-md hover:-translate-y-0.5">
+            <button
+              onClick={onNewGoal}
+              disabled={hasNoRemainingAllocatable}
+              className={`flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl transition-all shadow-md ${
+                hasNoRemainingAllocatable
+                  ? "bg-gray-400 cursor-not-allowed hover:no-underline"
+                  : "bg-[#6b7c3f] hover:bg-[#5a6a33] hover:-translate-y-0.5"
+              }`}
+              title={hasNoRemainingAllocatable ? "Cannot create new goals - no remaining disposable income" : ""}
+            >
               <PlusIcon />
               New Goal
             </button>
@@ -77,7 +102,12 @@ const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
               <FinancialLine label="Fixed Expenses" valueClass="text-red-500">
                 − BD {formatBDAmount(totalExpenses)}
               </FinancialLine>
-              <FinancialLine label="Disposable Income">BD {formatBDAmount(disposable)}</FinancialLine>
+              <FinancialLine
+                label="Disposable Income"
+                valueClass={disposable <= 0 ? "text-red-500" : ""}
+              >
+                BD {formatBDAmount(disposable)}
+              </FinancialLine>
               <FinancialLine label="Committed to Goals" valueClass="text-[#6b7c3f]">
                 BD {formatBDAmount(totalCommitment)}
               </FinancialLine>
@@ -117,7 +147,7 @@ const GoalsHeader = ({ goals, onNewGoal, onViewProjections }) => {
   );
 };
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Sub-components (unchanged) ────────────────────────────────────────────────
 
 const BackgroundRings = () => (
   <div className="absolute inset-0 opacity-10">
