@@ -14,7 +14,7 @@ import { ITEMS_PER_PAGE }       from "../constants/goals.js";
 import { deadlineMs }           from "../utils/formatters.js";
 
 // ── Empty state ───────────────────────────────────────────────────────────────
-const EmptyState = ({ filter, onNewGoal }) => (
+const EmptyState = ({ filter, onNewGoal, hasAvailableIncome }) => (
   <div className="col-span-3 flex flex-col items-center justify-center py-20 text-center">
     <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4 text-3xl">
       {filter === "COMPLETED" ? "🏆" : filter === "AT_RISK" ? "⚠️" : "🎯"}
@@ -28,13 +28,38 @@ const EmptyState = ({ filter, onNewGoal }) => (
         : "Goals matching this filter will appear here."}
     </p>
     {filter === "ALL" && (
-      <button onClick={onNewGoal}
-        className="flex items-center gap-2 px-5 py-2.5 bg-[#6b7c3f] hover:bg-[#5a6a33] text-white text-sm font-bold rounded-xl transition-all">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-          <path d="M12 5v14M5 12h14" strokeLinecap="round"/>
-        </svg>
-        Create your first goal
-      </button>
+      <>
+        {!hasAvailableIncome ? (
+          <div className="flex flex-col items-center gap-3">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl max-w-sm">
+              <p className="text-sm text-amber-700 font-medium text-center">
+                ⚠️ You don't have any disposable income available to allocate to goals.
+              </p>
+              <p className="text-xs text-amber-600 mt-1 text-center">
+                Consider reducing your fixed expenses in Profile → My Information before creating goals.
+              </p>
+            </div>
+            <button
+              disabled={true}
+              className="flex items-center gap-2 px-5 py-2.5 bg-gray-300 cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 5v14M5 12h14" strokeLinecap="round"/>
+              </svg>
+              Cannot create goal
+            </button>
+          </div>
+        ) : (
+          <button onClick={onNewGoal}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#6b7c3f] hover:bg-[#5a6a33] text-white text-sm font-bold rounded-xl transition-all"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round"/>
+            </svg>
+            Create your first goal
+          </button>
+        )}
+      </>
     )}
   </div>
 );
@@ -69,7 +94,7 @@ const GoalsPage = () => {
     loading, error, mutating,
     refreshGoals,
     createGoal, updateGoal, deleteGoal,
-    maxAllocatable,  financialSnapshot,
+    maxAllocatable, financialSnapshot,
   } = useGoals();
 
   // ── Local UI state ────────────────────────────────────────────────────────
@@ -85,6 +110,12 @@ const GoalsPage = () => {
 
   const [projectionGoal, setProjectionGoal] = useState(null);
   const [simulationGoal, setSimulationGoal] = useState(null);
+
+  // Calculate available income
+  const disposable = parseFloat(financialSnapshot?.disposableIncome || 0);
+  const totalCommitment = parseFloat(financialSnapshot?.totalMonthlyCommitment || 0);
+  const availableToSave = Math.max(0, disposable - totalCommitment);
+  const hasAvailableIncome = availableToSave > 0;
 
   // ── Filtering + pagination ────────────────────────────────────────────────
   const filteredGoals = (() => {
@@ -189,7 +220,11 @@ const GoalsPage = () => {
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => <GoalSkeleton key={i} />)
             ) : paginatedGoals.length === 0 ? (
-              <EmptyState filter={activeFilter} onNewGoal={openCreate} />
+              <EmptyState
+                filter={activeFilter}
+                onNewGoal={openCreate}
+                hasAvailableIncome={hasAvailableIncome}
+              />
             ) : (
               paginatedGoals.map((goal) => (
                 <GoalCard key={goal.id} goal={goal}
