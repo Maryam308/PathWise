@@ -1,8 +1,10 @@
 package com.pathwise.backend.controller;
 
+import com.pathwise.backend.dto.AccountResponse;
 import com.pathwise.backend.dto.LinkCardRequest;
 import com.pathwise.backend.dto.PlaidLinkResponse;
 import com.pathwise.backend.dto.TransactionResponse;
+import com.pathwise.backend.model.Account;
 import com.pathwise.backend.service.PlaidService;
 import com.pathwise.backend.service.TransactionService;
 import jakarta.validation.Valid;
@@ -13,7 +15,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/plaid")
@@ -58,7 +62,7 @@ public class PlaidController {
         return ResponseEntity.ok("Transactions synced successfully!");
     }
 
-    // Get transactions with pagination 
+    // Get transactions with pagination, search, filter, and sort
 
     @GetMapping("/transactions")
     public ResponseEntity<Page<TransactionResponse>> getTransactions(
@@ -66,11 +70,37 @@ public class PlaidController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortDir,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "8") int size) {
 
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(
-                transactionService.getTransactions(search, category, month, year, pageable));
+                transactionService.getTransactions(search, category, month, year, sortBy, sortDir, pageable));
+    }
+
+    // Get all accounts for the current user
+    @GetMapping("/accounts")
+    public ResponseEntity<List<AccountResponse>> getAccounts() {
+        List<Account> accounts = plaidService.getCurrentUserAccounts();
+        List<AccountResponse> responses = accounts.stream()
+                .map(this::mapToAccountResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(responses);
+    }
+
+    private AccountResponse mapToAccountResponse(Account account) {
+        return AccountResponse.builder()
+                .id(account.getId())
+                .bankName(account.getBankName())
+                .cardType(account.getCardType() != null ? account.getCardType().name() : null)
+                .cardHolderName(account.getCardHolderName())
+                .maskedNumber(account.getMaskedNumber())
+                .expiryMonth(account.getExpiryMonth())
+                .expiryYear(account.getExpiryYear())
+                .balance(account.getBalance())
+                .currency(account.getCurrency())
+                .build();
     }
 }
