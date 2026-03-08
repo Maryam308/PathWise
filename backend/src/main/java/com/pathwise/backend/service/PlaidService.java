@@ -11,17 +11,22 @@ import org.springframework.http.*;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("unchecked")
 public class PlaidService {
 
     private final UserRepository userRepository;
@@ -40,32 +45,178 @@ public class PlaidService {
     @Value("${plaid.env}")
     private String plaidEnv;
 
-    // List of Plaid sandbox institutions with different merchant data
-    private static final List<String> INSTITUTIONS = Arrays.asList(
-        "ins_3",  // Chase - Uber, McDonald's, Starbucks
-        "ins_5",  // Wells Fargo - Amazon, Walmart, Netflix
-        "ins_4",  // Citibank - Zara, H&M, Careem
-        "ins_6",  // Bank of America - CVS, Walgreens, Apple
-        "ins_1",  // US Bank - Shell, Exxon, Delta
-        "ins_2"   // PNC - Target, Best Buy, Spotify
-    );
-    
-    private static final Map<String, String> INSTITUTION_NAMES = Map.of(
-        "ins_3", "Chase",
-        "ins_5", "Wells Fargo",
-        "ins_4", "Citibank",
-        "ins_6", "Bank of America",
-        "ins_1", "US Bank",
-        "ins_2", "PNC"
-    );
-    
-    private static final Random RANDOM = new Random();
+    // Inner class for institution data
+    private static class PlaidInstitution {
+        private final String id;
+        private final String name;
+        private final List<String> products;
+        private final List<String> countryCodes;
+
+        public PlaidInstitution(String id, String name, List<String> products, List<String> countryCodes) {
+            this.id = id;
+            this.name = name;
+            this.products = products != null ? products : List.of();
+            this.countryCodes = countryCodes != null ? countryCodes : List.of();
+        }
+
+        public String getId() { return id; }
+        public String getName() { return name; }
+        public List<String> getProducts() { return products; }
+        public List<String> getCountryCodes() { return countryCodes; }
+    }
+
+    // Cache for institution data
+    private List<PlaidInstitution> supportedInstitutions = new ArrayList<>();
+    private Instant lastFetchTime = null;
+    private static final Duration CACHE_DURATION = Duration.ofHours(24);
     
     // USD to BHD conversion rate (1 USD = 0.376 BHD)
     private static final BigDecimal USD_TO_BHD = new BigDecimal("0.376");
+    
+    // Fallback institutions if API fails
+    private static final List<String> FALLBACK_INSTITUTIONS = Arrays.asList(
+        "ins_39",  // Chase
+        "ins_56",  // Wells Fargo
+        "ins_3",   // Bank of America
+        "ins_109512" // Capital One
+    );
 
-    private String getRandomInstitution() {
-        return INSTITUTIONS.get(RANDOM.nextInt(INSTITUTIONS.size()));
+    // ── INSTITUTION MANAGEMENT ──
+
+    private List<PlaidInstitution> getSupportedInstitutions() {
+        // Return cached list if still valid
+        if (!supportedInstitutions.isEmpty() && lastFetchTime != null && 
+            Duration.between(lastFetchTime, Instant.now()).compareTo(CACHE_DURATION) < 0) {
+            log.debug("Returning {} cached institutions", supportedInstitutions.size());
+            return supportedInstitutions;
+        }
+        
+        // Refresh cache
+        return refreshInstitutionsCache();
+    }
+
+    private List<PlaidInstitution> refreshInstitutionsCache() {
+        log.info("Refreshing institutions cache from Plaid API...");
+        
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("client_id", clientId);
+            requestBody.put("secret", plaidSecret);
+            requestBody.put("count", 500);
+            requestBody.put("offset", 0);
+            requestBody.put("country_codes", List.of("US"));
+            requestBody.put("products", List.of("transactions"));
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+
+            Map<String, Object> response = restTemplate.postForObject(
+                getPlaidBaseUrl() + "/institutions/get",
+                request,
+                Map.class
+            );
+
+            if (response == null || !response.containsKey("institutions")) {
+                throw new RuntimeException("Invalid response from Plaid institutions endpoint");
+            }
+
+            List<Map<String, Object>> institutions = (List<Map<String, Object>>) response.get("institutions");
+            
+            supportedInstitutions = institutions.stream()
+                .map(this::mapToPlaidInstitution)
+                .filter(inst -> inst.getProducts().contains("transactions") &&
+                               inst.getCountryCodes().contains("US"))
+                .collect(Collectors.toList());
+
+            lastFetchTime = Instant.now();
+            
+            log.info("✅ Successfully fetched {} supported institutions from Plaid", supportedInstitutions.size());
+            
+            // Log some examples for debugging
+            supportedInstitutions.stream()
+                .limit(5)
+                .forEach(inst -> log.debug("Example: {} - {}", inst.getId(), inst.getName()));
+
+        } catch (Exception e) {
+            log.error("Failed to fetch institutions from Plaid: {}", e.getMessage());
+            // Create fallback institutions from our known list
+            supportedInstitutions = createFallbackInstitutions();
+            lastFetchTime = Instant.now();
+        }
+
+        return supportedInstitutions;
+    }
+
+    private List<PlaidInstitution> createFallbackInstitutions() {
+        log.warn("Creating fallback institutions list");
+        
+        Map<String, String> fallbackMap = Map.of(
+            "ins_39", "Chase",
+            "ins_56", "Wells Fargo",
+            "ins_3", "Bank of America",
+            "ins_109512", "Capital One"
+        );
+
+        return fallbackMap.entrySet().stream()
+            .map(entry -> new PlaidInstitution(
+                entry.getKey(),
+                entry.getValue(),
+                List.of("transactions", "auth", "identity"),
+                List.of("US")
+            ))
+            .collect(Collectors.toList());
+    }
+
+    private PlaidInstitution mapToPlaidInstitution(Map<String, Object> data) {
+        String id = (String) data.get("institution_id");
+        String name = (String) data.get("name");
+        
+        List<String> products = new ArrayList<>();
+        if (data.containsKey("products")) {
+            products = ((List<Map<String, String>>) data.get("products")).stream()
+                .map(p -> p.get("type"))
+                .collect(Collectors.toList());
+        }
+
+        List<String> countryCodes = (List<String>) data.getOrDefault("country_codes", List.of());
+
+        return new PlaidInstitution(id, name, products, countryCodes);
+    }
+
+    private PlaidInstitution getRandomInstitution() {
+        List<PlaidInstitution> institutions = getSupportedInstitutions();
+        
+        if (institutions.isEmpty()) {
+            log.error("No institutions available, using hardcoded fallback");
+            institutions = createFallbackInstitutions();
+        }
+        
+        // Filter to ensure we have institutions that support transactions
+        List<PlaidInstitution> validInstitutions = institutions.stream()
+            .filter(inst -> inst.getProducts().contains("transactions"))
+            .collect(Collectors.toList());
+        
+        if (validInstitutions.isEmpty()) {
+            log.warn("No institutions with transactions support, using all institutions");
+            validInstitutions = institutions;
+        }
+
+        PlaidInstitution selected = validInstitutions.get(
+            new Random().nextInt(validInstitutions.size())
+        );
+        
+        log.info("🎲 Selected random institution: {} ({}) for user {}", 
+            selected.getId(), selected.getName(), getCurrentUserId());
+        
+        return selected;
+    }
+
+    private Optional<PlaidInstitution> getInstitutionById(String institutionId) {
+        return getSupportedInstitutions().stream()
+            .filter(inst -> inst.getId().equals(institutionId))
+            .findFirst();
     }
 
     private String getPlaidBaseUrl() {
@@ -74,6 +225,29 @@ public class PlaidService {
             case "development" -> "https://development.plaid.com";
             default -> "https://sandbox.plaid.com";
         };
+    }
+
+    private UUID getCurrentUserId() {
+        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
+                .getAuthentication().getPrincipal();
+        return userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new UserNotFoundException("User not found"))
+                .getId();
+    }
+
+    private User getCurrentUser() {
+        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
+                .getAuthentication().getPrincipal();
+        return userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+    }
+
+    // ── NEW METHOD: Get current user's accounts ──────────────────────────────
+    public List<Account> getCurrentUserAccounts() {
+        User user = getCurrentUser();
+        return accountRepository.findByUserId(user.getId())
+                .map(List::of)
+                .orElse(List.of());
     }
 
     // ── FULL PLAID FLOW METHODS ──
@@ -97,7 +271,7 @@ public class PlaidService {
 
         try {
             log.info("Creating link token for user {}", user.getId());
-            Map response = restTemplate.postForObject(
+            Map<String, Object> response = restTemplate.postForObject(
                     getPlaidBaseUrl() + "/link/token/create",
                     request, Map.class);
             String linkToken = (String) response.get("link_token");
@@ -109,6 +283,7 @@ public class PlaidService {
         }
     }
 
+    @Transactional
     public void exchangeTokenAndSave(String publicToken, String bankId, String institutionName) {
         User user = getCurrentUser();
 
@@ -127,7 +302,7 @@ public class PlaidService {
         );
 
         log.info("Exchanging public token for access token...");
-        Map response = restTemplate.postForObject(
+        Map<String, Object> response = restTemplate.postForObject(
                 getPlaidBaseUrl() + "/item/public_token/exchange",
                 new HttpEntity<>(body, headers), Map.class);
 
@@ -141,17 +316,17 @@ public class PlaidService {
                 "access_token", accessToken
         );
 
-        Map accountsResponse = restTemplate.postForObject(
+        Map<String, Object> accountsResponse = restTemplate.postForObject(
                 getPlaidBaseUrl() + "/accounts/get",
                 new HttpEntity<>(accountsBody, headers), Map.class);
 
-        List<Map> accounts = (List<Map>) accountsResponse.get("accounts");
+        List<Map<String, Object>> accounts = (List<Map<String, Object>>) accountsResponse.get("accounts");
         if (accounts.isEmpty()) {
             throw new RuntimeException("No accounts found from Plaid");
         }
         
-        Map plaidAccount = accounts.get(0);
-        Map balances = (Map) plaidAccount.get("balances");
+        Map<String, Object> plaidAccount = accounts.get(0);
+        Map<String, Object> balances = (Map<String, Object>) plaidAccount.get("balances");
         BigDecimal balance = extractAmount(balances.get("current"));
 
         com.pathwise.backend.enums.BahrainBank bank = 
@@ -175,6 +350,7 @@ public class PlaidService {
         fetchAndStoreTransactions(accessToken, account);
     }
 
+    @Transactional
     public void linkCard(LinkCardRequest request) {
         User user = getCurrentUser();
 
@@ -183,17 +359,16 @@ public class PlaidService {
                     "You already have a bank account linked. Remove it before adding a new one.");
         }
 
-        // ===== RANDOM INSTITUTION SELECTION =====
-        String randomInstitution = getRandomInstitution();
-        String institutionDisplayName = INSTITUTION_NAMES.get(randomInstitution);
+        // ===== DYNAMIC INSTITUTION SELECTION =====
+        PlaidInstitution randomInstitution = getRandomInstitution();
         log.info("🎲 Selected random institution: {} ({}) for user {}", 
-                 randomInstitution, institutionDisplayName, user.getId());
+                 randomInstitution.getId(), randomInstitution.getName(), user.getId());
         
-        String publicToken = createSandboxPublicToken(randomInstitution);
+        String publicToken = createSandboxPublicToken(randomInstitution.getId());
         String accessToken = exchangePublicToken(publicToken);
 
-        Map plaidAccount = getPlaidAccount(accessToken);
-        Map balances = (Map) plaidAccount.get("balances");
+        Map<String, Object> plaidAccount = getPlaidAccount(accessToken);
+        Map<String, Object> balances = (Map<String, Object>) plaidAccount.get("balances");
         BigDecimal balance = extractAmount(balances.get("current"));
 
         Account account = Account.builder()
@@ -216,7 +391,7 @@ public class PlaidService {
         accountRepository.save(account);
         log.info("✅ Card linked for user {}: {} (using random Plaid institution: {} - {})", 
                 user.getId(), request.getBank().getDisplayName(), 
-                randomInstitution, institutionDisplayName);
+                randomInstitution.getId(), randomInstitution.getName());
 
         try {
             log.info("Waiting 5 seconds for transactions to be ready...");
@@ -228,6 +403,7 @@ public class PlaidService {
         fetchAndStoreTransactions(accessToken, account);
     }
 
+    @Transactional
     public void syncTransactions() {
         User user = getCurrentUser();
         Account account = accountRepository.findByUserId(user.getId())
@@ -251,9 +427,11 @@ public class PlaidService {
         );
 
         try {
-            String institutionName = INSTITUTION_NAMES.getOrDefault(institutionId, "Unknown");
+            Optional<PlaidInstitution> institution = getInstitutionById(institutionId);
+            String institutionName = institution.map(PlaidInstitution::getName).orElse("Unknown");
+            
             log.info("Creating sandbox public token with institution: {} ({})", institutionId, institutionName);
-            Map response = restTemplate.postForObject(
+            Map<String, Object> response = restTemplate.postForObject(
                     getPlaidBaseUrl() + "/sandbox/public_token/create",
                     new HttpEntity<>(body, headers), Map.class);
             String publicToken = (String) response.get("public_token");
@@ -261,7 +439,7 @@ public class PlaidService {
             return publicToken;
         } catch (Exception e) {
             log.error("Failed to create sandbox token: {}", e.getMessage());
-            throw new RuntimeException("Failed to connect to Plaid sandbox");
+            throw new RuntimeException("Failed to connect to Plaid sandbox: " + e.getMessage());
         }
     }
 
@@ -276,7 +454,7 @@ public class PlaidService {
         );
 
         log.info("Exchanging public token for access token...");
-        Map response = restTemplate.postForObject(
+        Map<String, Object> response = restTemplate.postForObject(
                 getPlaidBaseUrl() + "/item/public_token/exchange",
                 new HttpEntity<>(body, headers), Map.class);
         String accessToken = (String) response.get("access_token");
@@ -284,7 +462,7 @@ public class PlaidService {
         return accessToken;
     }
 
-    private Map getPlaidAccount(String accessToken) {
+    private Map<String, Object> getPlaidAccount(String accessToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -294,17 +472,18 @@ public class PlaidService {
                 "access_token", accessToken
         );
 
-        Map response = restTemplate.postForObject(
+        Map<String, Object> response = restTemplate.postForObject(
                 getPlaidBaseUrl() + "/accounts/get",
                 new HttpEntity<>(body, headers), Map.class);
 
-        List<Map> accounts = (List<Map>) response.get("accounts");
+        List<Map<String, Object>> accounts = (List<Map<String, Object>>) response.get("accounts");
         if (accounts == null || accounts.isEmpty()) {
             throw new RuntimeException("No accounts found from Plaid");
         }
         return accounts.get(0);
     }
 
+    @Transactional
     public void fetchAndStoreTransactions(String accessToken, Account account) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -322,18 +501,18 @@ public class PlaidService {
 
         try {
             log.info("Fetching transactions from Plaid for account: {}", account.getId());
-            Map response = restTemplate.postForObject(
+            Map<String, Object> response = restTemplate.postForObject(
                     getPlaidBaseUrl() + "/transactions/get",
                     new HttpEntity<>(body, headers), Map.class);
 
-            List<Map> transactions = (List<Map>) response.get("transactions");
+            List<Map<String, Object>> transactions = (List<Map<String, Object>>) response.get("transactions");
             
             // Prepare transactions for batch processing
             List<Map<String, Object>> batchForAI = new ArrayList<>();
-            Map<String, Map> rawTransactions = new HashMap<>();
+            Map<String, Map<String, Object>> rawTransactions = new HashMap<>();
             Map<String, BigDecimal> bhdAmounts = new HashMap<>();
             
-            for (Map txn : transactions) {
+            for (Map<String, Object> txn : transactions) {
                 String plaidTxnId = (String) txn.get("transaction_id");
                 if (transactionRepository.existsByPlaidTransactionId(plaidTxnId)) continue;
 
@@ -419,9 +598,9 @@ public class PlaidService {
             
             // Save all transactions
             int saved = 0;
-            for (Map.Entry<String, Map> entry : rawTransactions.entrySet()) {
+            for (Map.Entry<String, Map<String, Object>> entry : rawTransactions.entrySet()) {
                 String plaidTxnId = entry.getKey();
-                Map txn = entry.getValue();
+                Map<String, Object> txn = entry.getValue();
                 
                 String merchantName = (String) txn.get("merchant_name");
                 BigDecimal bhdAmount = bhdAmounts.get(plaidTxnId);
@@ -522,12 +701,5 @@ public class PlaidService {
             case "TRAVEL" -> "#A29BFE";
             default -> "#95A5A6";
         };
-    }
-
-    private User getCurrentUser() {
-        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
-                .getAuthentication().getPrincipal();
-        return userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 }

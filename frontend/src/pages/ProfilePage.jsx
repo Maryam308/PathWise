@@ -1,9 +1,17 @@
-import { useState } from "react";
-import { useAuth } from "../context/AuthContext.jsx";
-import Navbar from "../components/common/Navbar.jsx";
-import Footer from "../components/common/Footer.jsx";
-import MyInformationTab from "../components/profile/MyInformationTab.jsx";
-import MyCardTab from "../components/profile/MyCardTab.jsx";
+// ─────────────────────────────────────────────────────────────────────────────
+// pages/ProfilePage.jsx
+//
+// Reads ?tab=card from the URL so the dashboard "View All" link can land
+// directly on the My Card tab (with the transactions table visible).
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useState }            from "react";
+import { useSearchParams }     from "react-router-dom";
+import { useAuth }             from "../context/AuthContext.jsx";
+import Navbar                  from "../components/common/Navbar.jsx";
+import Footer                  from "../components/common/Footer.jsx";
+import MyInformationTab        from "../components/profile/MyInformationTab.jsx";
+import MyCardTab               from "../components/profile/MyCardTab.jsx";
 
 const TABS = [
   { key: "info", label: "My Information" },
@@ -11,8 +19,18 @@ const TABS = [
 ];
 
 const ProfilePage = () => {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("info");
+  const { user }                        = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Open "card" tab if ?tab=card is present in URL (from dashboard "View All")
+  const initialTab = searchParams.get("tab") === "card" ? "card" : "info";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  const switchTab = (key) => {
+    setActiveTab(key);
+    // Remove the ?tab query param so it doesn't linger on refresh
+    setSearchParams({});
+  };
 
   const initials = user?.fullName
     ? user.fullName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
@@ -23,63 +41,39 @@ const ProfilePage = () => {
       <Navbar />
 
       <main className="flex-1 pt-[64px]">
-
-        {/* ── Hero banner ─────────────────────────────────────────────────── */}
+        {/* Hero banner */}
         <div className="bg-[#2c3347] relative overflow-hidden">
-          {/* Decorative rings — same as GoalsHeader */}
           <div className="absolute inset-0 opacity-10">
             {[...Array(4)].map((_, i) => (
-              <div
-                key={i}
-                className="absolute border border-white/30 rounded-full"
-                style={{
-                  width:     `${(i + 1) * 180}px`,
-                  height:    `${(i + 1) * 180}px`,
-                  top:       "50%",
-                  right:     "-3%",
-                  transform: "translate(0, -50%)",
-                }}
-              />
+              <div key={i} className="absolute border border-white/30 rounded-full"
+                style={{ width:`${(i+1)*180}px`, height:`${(i+1)*180}px`, top:"50%", right:"-3%", transform:"translate(0,-50%)" }} />
             ))}
           </div>
-
           <div className="relative z-10 max-w-3xl mx-auto px-6 py-10 lg:py-12">
-            <p className="text-[#a3b46a] text-xs font-semibold uppercase tracking-widest mb-4">
-              Account
-            </p>
+            <p className="text-[#a3b46a] text-xs font-semibold uppercase tracking-widest mb-4">Account</p>
             <div className="flex items-center gap-4">
-              {/* Avatar */}
               <div className="w-14 h-14 bg-[#6b7c3f] rounded-2xl flex items-center justify-center shrink-0 shadow-lg">
                 <span className="text-white text-lg font-black">{initials}</span>
               </div>
               <div>
-                <h1 className="text-2xl lg:text-3xl font-black text-white leading-tight">
-                  {user?.fullName || "User"}
-                </h1>
+                <h1 className="text-2xl lg:text-3xl font-black text-white leading-tight">{user?.fullName || "User"}</h1>
                 <p className="text-gray-400 text-sm mt-0.5">{user?.email}</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ── Content card ────────────────────────────────────────────────── */}
+        {/* Content card */}
         <div className="max-w-3xl mx-auto px-6 -mt-4 relative z-10 pb-16">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-
             {/* Tab bar */}
             <div className="flex border-b border-gray-100">
               {TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
+                <button key={tab.key} onClick={() => switchTab(tab.key)}
                   className={`flex-1 py-4 text-sm font-semibold transition-all relative ${
-                    activeTab === tab.key
-                      ? "text-gray-900"
-                      : "text-gray-400 hover:text-gray-600"
-                  }`}
-                >
+                    activeTab === tab.key ? "text-gray-900" : "text-gray-400 hover:text-gray-600"
+                  }`}>
                   {tab.label}
-                  {/* Active indicator */}
                   {activeTab === tab.key && (
                     <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#6b7c3f] rounded-full" />
                   )}
@@ -94,7 +88,6 @@ const ProfilePage = () => {
             </div>
           </div>
         </div>
-
       </main>
 
       <Footer />

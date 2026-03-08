@@ -13,7 +13,7 @@ public class TransactionResponse {
     private UUID id;
     private String merchantName;
     private BigDecimal amount;
-    private String type;
+    private String type;        // "DEBIT" or "CREDIT"
     private String currency;
     private LocalDate transactionDate;
     private String category;

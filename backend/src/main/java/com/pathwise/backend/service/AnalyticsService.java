@@ -4,6 +4,7 @@ import com.pathwise.backend.dto.AnalyticsResponse;
 import com.pathwise.backend.dto.AnalyticsResponse.MonthlyData;
 import com.pathwise.backend.enums.TransactionType;
 import com.pathwise.backend.exception.UserNotFoundException;
+import com.pathwise.backend.model.Account;
 import com.pathwise.backend.model.Transaction;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.AccountRepository;
@@ -43,20 +44,31 @@ public class AnalyticsService {
         List<Transaction> transactions = transactionRepository
                 .findByAccountUserIdAndTransactionDateBetween(user.getId(), start, end);
 
-        // Summary
-        BigDecimal totalBalance = accountRepository.findByUserId(user.getId())
-                .map(a -> a.getBalance() != null ? a.getBalance() : BigDecimal.ZERO)
+        // Get user's monthly salary
+        BigDecimal monthlySalary = user.getMonthlySalary() != null ? user.getMonthlySalary() : BigDecimal.ZERO;
+        
+        // Get Plaid account balance
+        BigDecimal plaidBalance = accountRepository.findByUserId(user.getId())
+                .map(Account::getBalance)
                 .orElse(BigDecimal.ZERO);
-
-        BigDecimal totalIncome = transactions.stream()
+        
+        // Calculate total income from transactions (CREDIT type)
+        BigDecimal incomeFromTransactions = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.CREDIT)
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-
+        
+        // Calculate total expenses from transactions (DEBIT type)
         BigDecimal totalExpenses = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.DEBIT)
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        
+        // Total income = monthly salary + income from transactions
+        BigDecimal totalIncome = monthlySalary.add(incomeFromTransactions);
+        
+        // Total balance = Plaid balance (this is the current account balance)
+        BigDecimal totalBalance = plaidBalance;
 
         // Pie chart — spending by category
         Map<String, BigDecimal> spendingByCategory = transactions.stream()
