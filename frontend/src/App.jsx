@@ -1,5 +1,4 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// App.jsx
 //
 // Route map:
 //   /             → LandingPage        (public)
@@ -27,6 +26,7 @@ import DashboardPage         from "./pages/DashboardPage.jsx";
 import InsightsPage          from "./pages/InsightsPage.jsx";
 import GoalsPage             from "./pages/GoalsPage.jsx";
 import ProfilePage           from "./pages/ProfilePage.jsx";
+import ForgotPassword        from "./pages/ForgotPassword.jsx";
 
 function App() {
   return (
@@ -37,6 +37,7 @@ function App() {
           <Route path="/"       element={<LandingPage />} />
           <Route path="/login"  element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           {/* ── Protected — insights feature shares one provider ────── */}
           {/*
