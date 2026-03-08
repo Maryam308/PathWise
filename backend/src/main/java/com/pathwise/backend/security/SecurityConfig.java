@@ -1,5 +1,6 @@
 package com.pathwise.backend.security;
 
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,12 +24,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // ── CORS is handled by the CorsFilter bean in CorsConfig ──
-                // Spring Security must be told to defer to it, otherwise it
-                // blocks OPTIONS preflight before the filter even runs.
                 .cors(cors -> {})
 
                 .csrf(csrf -> csrf.disable())
+
+                // Add exception handling to return 401 for unauthenticated requests
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                        })
+                )
+
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints - Authentication
                         .requestMatchers("/api/auth/**").permitAll()
@@ -43,7 +49,7 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
 
-                        // Public health check (optional)
+                        // Public health check
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
 
                         // All other endpoints require authentication

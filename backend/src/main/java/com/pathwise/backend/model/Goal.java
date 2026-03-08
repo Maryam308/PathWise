@@ -44,7 +44,7 @@ public class Goal {
     private BigDecimal monthlySavingsTarget;
 
     private String currency;
-    private LocalDate deadline;
+    private java.time.YearMonth deadline;
 
     @Enumerated(EnumType.STRING)
     private GoalPriority priority;

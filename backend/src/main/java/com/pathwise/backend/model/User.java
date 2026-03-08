@@ -5,9 +5,14 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import jakarta.validation.constraints.Pattern;
 
 @Entity
-@Table(name = "users")
+@Table(name = "users", uniqueConstraints = {
+        @UniqueConstraint(columnNames = "email"),
+        @UniqueConstraint(columnNames = "phone")
+})
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -15,7 +20,7 @@ import java.util.UUID;
 public class User {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false)
@@ -27,8 +32,9 @@ public class User {
     @Column(nullable = false)
     private String passwordHash;
 
-    @Column(nullable = false)
-    private String phone;               // required at registration
+    @Column(nullable = false, unique = true)
+    @Pattern(regexp = "^[0-9]{8}$", message = "Phone number must be exactly 8 digits")
+    private String phone;
 
     @Column(nullable = false)
     @Builder.Default

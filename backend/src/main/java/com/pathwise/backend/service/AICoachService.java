@@ -150,9 +150,23 @@ public class AICoachService {
         if (snap.savingsRatePercent() != null)
             sb.append("Savings rate:          ").append(String.format("%.1f%%", snap.savingsRatePercent()))
                     .append(" of disposable\n");
-        if (snap.warningLevel() != FinancialProfileService.WarningLevel.NONE)
+
+        if (snap.warningLevel() != FinancialProfileService.WarningLevel.NONE) {
             sb.append("⚠ WARNING [").append(snap.warningLevel()).append("]: ")
                     .append(snap.warningMessage()).append("\n");
+
+            // Add specific guidance for zero/negative disposable income
+            if (snap.disposableIncome().compareTo(BigDecimal.ZERO) <= 0) {
+                sb.append("\n⚠️ CRITICAL: The user has ZERO or NEGATIVE disposable income. ");
+                sb.append("This means their monthly expenses equal or exceed their salary. ");
+                sb.append("When advising this user:\n");
+                sb.append("  • STRONGLY discourage creating new goals until this is resolved\n");
+                sb.append("  • Recommend reviewing fixed expenses in their profile first\n");
+                sb.append("  • If they ask about goals, suggest they reduce expenses or increase income first\n");
+                sb.append("  • For existing goals, advise them to check if monthly targets are realistic\n");
+                sb.append("  • Be supportive but direct about the situation\n");
+            }
+        }
 
         if (!expenses.isEmpty()) {
             sb.append("\nExpense breakdown:\n");
@@ -221,7 +235,7 @@ public class AICoachService {
                 "savedAmount": 0,
                 "monthlySavingsTarget": 200,
                 "currency": "BHD",
-                "deadline": "2026-12-31",
+                "deadline": "2026-12",
                 "priority": "MEDIUM"
               }
             }
@@ -231,7 +245,7 @@ public class AICoachService {
             For DELETE_GOAL, include "id" and "name".
             Valid categories: HOUSE, CAR, EDUCATION, TRAVEL, EMERGENCY_FUND, BUSINESS, CUSTOM
             Valid priorities: HIGH, MEDIUM, LOW
-            Deadline format: YYYY-MM-DD
+            Deadline format: YYYY-MM
 
             IMPORTANT: Only embed the action block when the user explicitly requests a create/update/delete. \
             For advisory questions, never emit action blocks.
@@ -255,7 +269,7 @@ public class AICoachService {
         sb.append("   Step 4: Amount already saved (default 0 if nothing)\n");
         sb.append("   Step 5: Deadline — accept any natural phrasing (\"end of 2028\", \"June 2028\", \"idk\").\n");
         sb.append("           If they say idk/unsure/skip → ask for monthly savings rate instead and calculate deadline.\n");
-        sb.append("           Always store deadline as YYYY-MM-DD (last day of the given month).\n");
+        sb.append("           Always store deadline as YYYY-MM.\n");
         sb.append("   Step 6: Monthly savings target in BD (if deadline was provided, suggest the required rate).\n");
         sb.append("   Step 7: Priority (HIGH / MEDIUM / LOW)\n");
         sb.append("   Step 8: Show a clear summary of ALL fields and ask: \"Does this look correct? Reply confirm or tell me what to change.\"\n");
@@ -272,10 +286,10 @@ public class AICoachService {
         sb.append("8. When asked to UPDATE or DELETE a goal, always confirm details before acting.\n");
         sb.append("9. Format numbers with 3 decimal places: BD X,XXX.XXX\n");
         sb.append("10. VALIDATION — when embedding an action block, enforce:\n");
-        sb.append("   - deadline must be AFTER today (" + java.time.LocalDate.now() + "), never in the past\n");
+        sb.append("   - deadline must be AFTER today (" + java.time.YearMonth.now() + "), never in the past\n");
         sb.append("   - savedAmount must be < targetAmount\n");
         sb.append("   - targetAmount > 0, savedAmount >= 0\n");
-        sb.append("   - deadline format: YYYY-MM-DD\n");
+        sb.append("   - deadline format: YYYY-MM (e.g., 2027-06). This is CRITICAL - never include the day.\n");
         sb.append("   - If user gives invalid data, reject it and ask them to correct it before creating.\n");
 
         return sb.toString();
@@ -294,6 +308,17 @@ public class AICoachService {
                 .append(snap.disposableIncome().subtract(snap.totalMonthlySavings()).max(BigDecimal.ZERO))
                 .append("\n\n");
 
+        //  special guidance for zero disposable income
+        if (snap.disposableIncome().compareTo(BigDecimal.ZERO) <= 0) {
+            sb.append("⚠️ IMPORTANT: The user has ZERO disposable income. ");
+            sb.append("Your weekly advice should:\n");
+            sb.append("  • Acknowledge the situation kindly but directly\n");
+            sb.append("  • Focus on expense reduction strategies rather than new goals\n");
+            sb.append("  • Suggest reviewing fixed expenses in their profile\n");
+            sb.append("  • If they have existing goals, check if monthly targets are feasible\n");
+            sb.append("  • Be supportive and practical\n\n");
+        }
+
         if (!goals.isEmpty()) {
             sb.append("Goal progress:\n");
             for (Goal g : goals) {
@@ -307,6 +332,12 @@ public class AICoachService {
 
         sb.append("\nGive exactly 3 specific, numbered, actionable tips for this week. ")
                 .append("Reference exact goals and BD amounts. Keep total under 200 words.");
+
+        // Add extra context for zero disposable case
+        if (snap.disposableIncome().compareTo(BigDecimal.ZERO) <= 0) {
+            sb.append(" Since the user has no disposable income, focus tip #1 on expense reduction strategies.");
+        }
+
         return sb.toString();
     }
 

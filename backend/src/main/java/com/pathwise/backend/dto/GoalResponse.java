@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -23,7 +23,7 @@ public class GoalResponse {
     private BigDecimal savedAmount;
     private BigDecimal monthlySavingsTarget;
     private String currency;
-    private LocalDate deadline;
+    private YearMonth deadline;
     private GoalPriority priority;
     private GoalStatus status;
     private Double progressPercentage;

@@ -6,6 +6,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import com.pathwise.backend.enums.GoalCategory;
 import com.pathwise.backend.enums.GoalPriority;
+import com.pathwise.backend.validation.FutureYearMonth;
+import java.time.YearMonth;
 
 @Data
 @NoArgsConstructor
@@ -29,8 +31,8 @@ public class GoalRequest {
     private String currency;
 
     @NotNull(message = "Deadline is required")
-    @Future(message = "Deadline must be a future date")
-    private LocalDate deadline;
+    @FutureYearMonth(message = "Deadline must be a future date")
+    private java.time.YearMonth deadline;
 
     @NotNull(message = "Priority is required")
     private GoalPriority priority;

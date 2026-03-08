@@ -11,7 +11,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,18 +32,19 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(
-                    responseCode = "200",
+                    responseCode = "201",
                     description = "User registered successfully",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = AuthResponse.class),
                             examples = @ExampleObject(value = "{\"token\": \"eyJhbGc...\", \"email\": \"user@example.com\", \"name\": \"John Doe\"}")
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid input or email already exists"),
+            @ApiResponse(responseCode = "400", description = "Invalid input data"),
+            @ApiResponse(responseCode = "409", description = "Email already exists"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
-    public ResponseEntity<AuthResponse> register(@RequestBody RegisterRequest request) {
-        return ResponseEntity.ok(authService.register(request));
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
     @PostMapping("/login")
@@ -54,7 +57,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Invalid credentials"),
             @ApiResponse(responseCode = "400", description = "Invalid request format")
     })
-    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
     }
 }

@@ -23,6 +23,7 @@ public class RegisterRequest {
     private String password;
 
     @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "^[0-9]{8}$", message = "Phone number must be exactly 8 digits")
     private String phone;
 
     private String preferredCurrency = "BHD";
