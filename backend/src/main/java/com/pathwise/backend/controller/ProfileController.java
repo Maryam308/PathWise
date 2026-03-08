@@ -85,12 +85,30 @@ public class ProfileController {
             @Valid @RequestBody UpdateProfileRequest request) {
         User user = getCurrentUser();
 
-        if (request.getFullName() != null)   user.setFullName(request.getFullName().trim());
-        if (request.getPhone() != null)       user.setPhone(request.getPhone());
-        if (request.getPreferredCurrency() != null)
+        if (request.getFullName() != null && !request.getFullName().trim().isEmpty()) {
+            user.setFullName(request.getFullName().trim());
+        }
+        // Handle phone update with uniqueness check
+        if (request.getPhone() != null) {
+            // Validate phone format
+            if (!request.getPhone().matches("^[0-9]{8}$")) {
+                throw new IllegalArgumentException("Phone number must be exactly 8 digits");
+            }
+
+            // Check if phone is being changed and if it's already taken by another user
+            if (!request.getPhone().equals(user.getPhone()) &&
+                    userRepository.existsByPhone(request.getPhone())) {
+                throw new IllegalArgumentException("This phone number is already registered with another account.");
+            }
+
+            user.setPhone(request.getPhone());
+        }
+        if (request.getPreferredCurrency() != null) {
             user.setPreferredCurrency(request.getPreferredCurrency());
-        if (request.getMonthlySalary() != null)
+        }
+        if (request.getMonthlySalary() != null) {
             user.setMonthlySalary(request.getMonthlySalary());
+        }
 
         user.setUpdatedAt(LocalDateTime.now());
         User saved = userRepository.save(user);

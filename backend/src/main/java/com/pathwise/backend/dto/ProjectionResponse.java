@@ -3,7 +3,7 @@ package com.pathwise.backend.dto;
 import lombok.Builder;
 import lombok.Data;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,8 +19,8 @@ public class ProjectionResponse {
 
     // ── Results ───────────────────────────────────────────────────────────────
     private long      monthsNeeded;
-    private LocalDate projectedCompletionDate;
-    private LocalDate goalDeadline;
+    private YearMonth projectedCompletionDate;
+    private YearMonth deadline;
     private boolean   isOnTrack;
     private long      monthsAheadOrBehind;   // positive = ahead, negative = behind
 

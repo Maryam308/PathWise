@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +32,10 @@ public class GoalService {
     private final UserRepository userRepository;
     private final FinancialProfileService financialProfileService;
 
+    public FinancialSnapshot getFinancialSnapshot() {
+        User user = getCurrentUser();
+        return financialProfileService.getSnapshot(user);
+    }
     // ── Create ────────────────────────────────────────────────────────────────
 
     public GoalResponse createGoal(GoalRequest request) {
@@ -158,7 +162,6 @@ public class GoalService {
     }
 
     // ── Status calculation ────────────────────────────────────────────────────
-
     private GoalStatus calculateStatus(Goal goal) {
         if (goal.getSavedAmount() == null) return GoalStatus.ON_TRACK;
 
@@ -176,7 +179,11 @@ public class GoalService {
                 .divide(goal.getMonthlySavingsTarget(), 0, RoundingMode.CEILING)
                 .longValue();
 
-        return LocalDate.now().plusMonths(months).isAfter(goal.getDeadline())
+        // Calculate projected completion year-month
+        YearMonth projectedCompletion = YearMonth.now().plusMonths(months);
+
+        // Compare with goal deadline (both are YearMonth)
+        return projectedCompletion.isAfter(goal.getDeadline())
                 ? GoalStatus.AT_RISK
                 : GoalStatus.ON_TRACK;
     }

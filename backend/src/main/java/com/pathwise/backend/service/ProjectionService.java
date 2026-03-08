@@ -17,8 +17,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,17 +53,18 @@ public class ProjectionService {
         long monthsNeeded = remaining.compareTo(BigDecimal.ZERO) == 0 ? 0
                 : remaining.divide(monthlySavingsRate, 0, RoundingMode.CEILING).longValue();
 
-        LocalDate projectedDate       = LocalDate.now().plusMonths(monthsNeeded);
-        boolean   isOnTrack           = !projectedDate.isAfter(goal.getDeadline());
-        long      monthsAheadOrBehind = ChronoUnit.MONTHS.between(projectedDate, goal.getDeadline());
+        YearMonth projectedMonth       = YearMonth.now().plusMonths(monthsNeeded);
+        boolean   isOnTrack            = !projectedMonth.isAfter(goal.getDeadline());
+        long monthsAheadOrBehind = Math.abs(projectedMonth.until(goal.getDeadline(), ChronoUnit.MONTHS));
 
         // ── Chart data ────────────────────────────────────────────────────────
         List<ProjectionResponse.ChartPoint> chart = new ArrayList<>();
         BigDecimal cumulative = goal.getSavedAmount() != null ? goal.getSavedAmount() : BigDecimal.ZERO;
         int points = (int) Math.min(monthsNeeded + 1, 37);
         for (int i = 0; i < points; i++) {
+            YearMonth chartMonth = YearMonth.now().plusMonths(i);
             chart.add(new ProjectionResponse.ChartPoint(
-                    LocalDate.now().plusMonths(i).toString(),
+                    chartMonth.toString(),  // YYYY-MM format
                     cumulative.min(goal.getTargetAmount())));
             cumulative = cumulative.add(monthlySavingsRate);
         }
@@ -96,8 +97,8 @@ public class ProjectionService {
                 .savedAmount(goal.getSavedAmount())
                 .monthlySavingsTarget(monthlySavingsRate)
                 .monthsNeeded(monthsNeeded)
-                .projectedCompletionDate(projectedDate)
-                .goalDeadline(goal.getDeadline())
+                .projectedCompletionDate(projectedMonth)
+                .deadline(goal.getDeadline())
                 .isOnTrack(isOnTrack)
                 .monthsAheadOrBehind(monthsAheadOrBehind)
                 .chartData(chart)

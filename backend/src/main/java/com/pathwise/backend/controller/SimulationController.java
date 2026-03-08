@@ -12,19 +12,19 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/goals")
+@RequestMapping("/api/simulations")
 @RequiredArgsConstructor
 public class SimulationController {
 
     private final SimulationService simulationService;
 
-    @PostMapping("/simulate")
+    @PostMapping
     public ResponseEntity<SimulationResponse> simulate(
             @Valid @RequestBody SimulationRequest request) {
         return ResponseEntity.ok(simulationService.simulate(request));
     }
 
-    @GetMapping("/{goalId}/simulations")
+    @GetMapping("/{goalId}")
     public ResponseEntity<List<SimulationResponse>> getSavedSimulations(
             @PathVariable UUID goalId) {
         return ResponseEntity.ok(simulationService.getSavedSimulations(goalId));
