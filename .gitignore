@@ -1,2 +1,47 @@
-backend/.env
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
 .fake
+
+# IDE directories
+.idea/
+.vscode/
+*.iws
+*.ipr
+out/
+.history
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Java/Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+logs/
+*.gz
+*.tgz
+hs_err_pid*
+heapdump*.hprof
+
+
+application-*.properties
+application-*.yml
+!application.properties
+!application.yml
+
+
+!.mvn/wrapper/maven-wrapper.jar
