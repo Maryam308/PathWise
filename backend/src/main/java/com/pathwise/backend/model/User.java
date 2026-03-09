@@ -12,7 +12,6 @@ import jakarta.validation.constraints.Pattern;
         @UniqueConstraint(columnNames = "email"),
         @UniqueConstraint(columnNames = "phone")
 })
-
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -48,6 +47,12 @@ public class User {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal monthlySalary;
 
+    // ── Email verification ────────────────────────────────────────────────────
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    // ── Timestamps ────────────────────────────────────────────────────────────
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
