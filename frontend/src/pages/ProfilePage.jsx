@@ -1,17 +1,10 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// pages/ProfilePage.jsx
-//
-// Reads ?tab=card from the URL so the dashboard "View All" link can land
-// directly on the My Card tab (with the transactions table visible).
-// ─────────────────────────────────────────────────────────────────────────────
-
-import { useState }            from "react";
-import { useSearchParams }     from "react-router-dom";
-import { useAuth }             from "../context/AuthContext.jsx";
-import Navbar                  from "../components/common/Navbar.jsx";
-import Footer                  from "../components/common/Footer.jsx";
-import MyInformationTab        from "../components/profile/MyInformationTab.jsx";
-import MyCardTab               from "../components/profile/MyCardTab.jsx";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.jsx";
+import Navbar from "../components/common/Navbar.jsx";
+import Footer from "../components/common/Footer.jsx";
+import MyInformationTab from "../components/profile/MyInformationTab.jsx";
+import MyCardTab from "../components/profile/MyCardTab.jsx";
 
 const TABS = [
   { key: "info", label: "My Information" },
@@ -19,7 +12,7 @@ const TABS = [
 ];
 
 const ProfilePage = () => {
-  const { user }                        = useAuth();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Open "card" tab if ?tab=card is present in URL (from dashboard "View All")
@@ -46,10 +39,10 @@ const ProfilePage = () => {
           <div className="absolute inset-0 opacity-10">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="absolute border border-white/30 rounded-full"
-                style={{ width:`${(i+1)*180}px`, height:`${(i+1)*180}px`, top:"50%", right:"-3%", transform:"translate(0,-50%)" }} />
+                style={{ width: `${(i + 1) * 180}px`, height: `${(i + 1) * 180}px`, top: "50%", right: "-3%", transform: "translate(0,-50%)" }} />
             ))}
           </div>
-          <div className="relative z-10 max-w-3xl mx-auto px-6 py-10 lg:py-12">
+          <div className="relative z-10 max-w-5xl mx-auto px-6 py-10 lg:py-12">
             <p className="text-[#a3b46a] text-xs font-semibold uppercase tracking-widest mb-4">Account</p>
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 bg-[#6b7c3f] rounded-2xl flex items-center justify-center shrink-0 shadow-lg">
@@ -63,16 +56,15 @@ const ProfilePage = () => {
           </div>
         </div>
 
-        {/* Content card */}
-        <div className="max-w-3xl mx-auto px-6 -mt-4 relative z-10 pb-16">
+        {/* Content card - WIDER (changed from max-w-3xl to max-w-5xl) */}
+        <div className="max-w-5xl mx-auto px-6 -mt-4 relative z-10 pb-16">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             {/* Tab bar */}
             <div className="flex border-b border-gray-100">
               {TABS.map((tab) => (
                 <button key={tab.key} onClick={() => switchTab(tab.key)}
-                  className={`flex-1 py-4 text-sm font-semibold transition-all relative ${
-                    activeTab === tab.key ? "text-gray-900" : "text-gray-400 hover:text-gray-600"
-                  }`}>
+                  className={`flex-1 py-4 text-sm font-semibold transition-all relative ${activeTab === tab.key ? "text-gray-900" : "text-gray-400 hover:text-gray-600"
+                    }`}>
                   {tab.label}
                   {activeTab === tab.key && (
                     <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#6b7c3f] rounded-full" />

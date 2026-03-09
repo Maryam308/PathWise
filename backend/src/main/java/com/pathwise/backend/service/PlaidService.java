@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -108,7 +109,7 @@ public class PlaidService {
             requestBody.put("count", 500);
             requestBody.put("offset", 0);
             requestBody.put("country_codes", List.of("US"));
-            requestBody.put("products", List.of("transactions"));
+            // REMOVED: products field as it's not accepted by this endpoint
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
 
@@ -242,7 +243,7 @@ public class PlaidService {
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
-    // ── NEW METHOD: Get current user's accounts ──────────────────────────────
+    // ── METHOD: Get current user's accounts ──────────────────────────────
     public List<Account> getCurrentUserAccounts() {
         User user = getCurrentUser();
         return accountRepository.findByUserId(user.getId())
@@ -415,6 +416,23 @@ public class PlaidService {
         fetchAndStoreTransactions(account.getPlaidAccessToken(), account);
     }
 
+    @Scheduled(cron = "0 0 2 * * ?") // Run at 2 AM daily
+    @Transactional
+    public void scheduledSyncAllAccounts() {
+        log.info("Running scheduled auto-sync for all accounts");
+        List<Account> allAccounts = accountRepository.findAll();
+        
+        for (Account account : allAccounts) {
+            try {
+                if (account.getPlaidAccessToken() != null) {
+                    fetchAndStoreTransactions(account.getPlaidAccessToken(), account);
+                }
+            } catch (Exception e) {
+                log.error("Failed to auto-sync account {}: {}", account.getId(), e.getMessage());
+            }
+        }
+    }
+
     private String createSandboxPublicToken(String institutionId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -514,7 +532,12 @@ public class PlaidService {
             
             for (Map<String, Object> txn : transactions) {
                 String plaidTxnId = (String) txn.get("transaction_id");
-                if (transactionRepository.existsByPlaidTransactionId(plaidTxnId)) continue;
+                
+                // Skip if transaction already exists
+                if (transactionRepository.existsByPlaidTransactionId(plaidTxnId)) {
+                    log.debug("Skipping existing transaction: {}", plaidTxnId);
+                    continue;
+                }
 
                 String merchantName = (String) txn.get("merchant_name");
                 
@@ -556,7 +579,7 @@ public class PlaidService {
                     int endIdx = Math.min(i + batchSize, batchForAI.size());
                     List<Map<String, Object>> batch = batchForAI.subList(i, endIdx);
                     
-                    log.info("Processing batch {} of {} (transactions {}-{})", 
+                    log.info("Processing AI batch {} of {} (transactions {}-{})", 
                         (i/batchSize + 1), 
                         (int) Math.ceil((double) batchForAI.size() / batchSize),
                         i + 1, endIdx);
@@ -624,7 +647,39 @@ public class PlaidService {
                     log.info("✅ Using real merchant name: '{}' (category: {})", finalMerchantName, categoryName);
                 }
 
-                String type = bhdAmount.compareTo(BigDecimal.ZERO) >= 0 ? "DEBIT" : "CREDIT";
+                // Determine transaction type
+                String transactionType = "DEBIT"; // Default to expense
+                
+                // Income indicators based on merchant name
+                if (merchantName != null) {
+                    String upperName = merchantName.toUpperCase();
+                    if (upperName.contains("SALARY") || 
+                        upperName.contains("PAYROLL") || 
+                        upperName.contains("DEPOSIT") ||
+                        upperName.contains("INTEREST") || 
+                        upperName.contains("DIVIDEND") ||
+                        upperName.contains("REFUND") || 
+                        upperName.contains("REIMBURSEMENT") ||
+                        upperName.contains("TRANSFER FROM") ||
+                        upperName.contains("CREDIT CARD PAYMENT") ||
+                        upperName.contains("DIRECT DEPOSIT") ||
+                        upperName.contains("PAYCHECK") ||
+                        upperName.contains("BONUS") ||
+                        upperName.contains("INCOME") ||
+                        upperName.contains("SALARY DEPOSIT")) {
+                        transactionType = "CREDIT";
+                        log.info("💰 Income detected: {} - {}", merchantName, bhdAmount);
+                    }
+                }
+
+                // Check for negative amounts (some banks use negative for credits)
+                BigDecimal originalAmount = extractAmount(txn.get("amount"));
+                if (originalAmount.compareTo(BigDecimal.ZERO) < 0) {
+                    transactionType = "CREDIT";
+                    bhdAmount = bhdAmount.abs(); // Make positive for storage
+                    log.info("💰 Negative amount detected as income: {}", merchantName);
+                }
+
                 LocalDate txnDate = LocalDate.parse((String) txn.get("date"));
                 
                 TransactionCategory category = getOrCreateCategory(categoryName);
@@ -635,7 +690,7 @@ public class PlaidService {
                         .plaidTransactionId(plaidTxnId)
                         .merchantName(finalMerchantName)  // Real name OR generated name
                         .amount(bhdAmount.abs())
-                        .type(com.pathwise.backend.enums.TransactionType.valueOf(type))
+                        .type(com.pathwise.backend.enums.TransactionType.valueOf(transactionType))
                         .currency("BHD")
                         .transactionDate(txnDate)
                         .aiCategoryRaw(categoryName)

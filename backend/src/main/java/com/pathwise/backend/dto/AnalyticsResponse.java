@@ -18,7 +18,7 @@ public class AnalyticsResponse {
     // Category name -> total amount (for pie chart)
     private Map<String, BigDecimal> spendingByCategory;
 
-    // Month (YYYY-MM) -> {income, expenses} (for bar chart)
+    // Month data for bar chart
     private List<MonthlyData> monthlyBreakdown;
 
     // Heatmap: date string -> amount
@@ -30,7 +30,9 @@ public class AnalyticsResponse {
     @Builder
     public static class MonthlyData {
         private String month;
+        private String sortKey;      // For sorting (yyyy-MM)
         private BigDecimal income;
         private BigDecimal expenses;
+        private BigDecimal savingsRate; // Percentage saved
     }
 }

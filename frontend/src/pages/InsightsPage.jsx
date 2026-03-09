@@ -1,278 +1,321 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// pages/InsightsPage.jsx
-//
-// Route: /insights
-//
-// Layout:
-//   1. Dark navy hero banner
-//   2. 3 stat cards: Account Balance (Plaid + salary) | Expenses | Income
-//   3. Anomaly banners
-//   4. Time range selector: This month | 3 months | 6 months | 12 months
-//   5. Spending pie chart — hover shows % + amount tooltip
-//   6. Income vs Expenses bar chart + Weekly (Mon–Sun current week) side by side
-//   7. "View Reports" button → popup modal
-//   8. Latest report rendered inline below button
-// ─────────────────────────────────────────────────────────────────────────────
-
-import { useState, useEffect, useRef } from "react";
-import { useInsights }         from "../hooks/useInsights.js";
-import { useAuth }             from "../context/AuthContext.jsx";
-import { insightsService }     from "../services/insightsService.js";
-import Navbar                  from "../components/common/Navbar.jsx";
-import Footer                  from "../components/common/Footer.jsx";
-import { Spinner }             from "../components/ui/primitives.jsx";
+import { useState, useEffect } from "react";
+import { useInsights } from "../hooks/useInsights.js";
+import { useAuth } from "../context/AuthContext.jsx";
+import { insightsService } from "../services/insightsService.js";
+import Navbar from "../components/common/Navbar.jsx";
+import Footer from "../components/common/Footer.jsx";
+import { Spinner } from "../components/ui/primitives.jsx";
 import { formatBD, formatBDAmount } from "../utils/formatters.js";
-import { formatReportDate }    from "../utils/insightsUtils.js";
+import { formatReportDate } from "../utils/insightsUtils.js";
 import { PIE_COLORS, ANOMALY_SEVERITY, ANALYTICS_RANGES } from "../constants/insights.js";
 
+// Recharts imports
+import {
+  PieChart as RePieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+} from 'recharts';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Pie chart with hover tooltip
+// Pie Chart using Recharts
 // ─────────────────────────────────────────────────────────────────────────────
 const PieChart = ({ data }) => {
-  const [hovered, setHovered] = useState(null); // { label, value, pct, x, y }
+  const [activeIndex, setActiveIndex] = useState(null);
 
-  const entries = Object.entries(data || {}).filter(([, v]) => v > 0);
-  if (!entries.length) {
-    return <div className="flex items-center justify-center h-36"><p className="text-sm text-gray-400">No spending data yet</p></div>;
+  const chartData = Object.entries(data || {})
+    .filter(([, value]) => value > 0)
+    .map(([name, value]) => ({
+      name,
+      value: parseFloat(value)
+    }));
+
+  if (chartData.length === 0) {
+    return <div className="flex items-center justify-center h-48"><p className="text-sm text-gray-400">No spending data yet</p></div>;
   }
 
-  const total  = entries.reduce((s, [, v]) => s + v, 0);
-  const cx = 80, cy = 80, r = 72;
-  let angle = -Math.PI / 2;
+  const onPieEnter = (_, index) => {
+    setActiveIndex(index);
+  };
 
-  const slices = entries.map(([label, value], i) => {
-    const sweep  = (value / total) * 2 * Math.PI;
-    const midAng = angle + sweep / 2;
-    const x1 = cx + r * Math.cos(angle);
-    const y1 = cy + r * Math.sin(angle);
-    angle += sweep;
-    const x2 = cx + r * Math.cos(angle);
-    const y2 = cy + r * Math.sin(angle);
-    // tooltip anchor point — midpoint on arc, slightly outside
-    const tx = cx + (r + 10) * Math.cos(midAng);
-    const ty = cy + (r + 10) * Math.sin(midAng);
-    return {
-      label, value,
-      path:  `M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${sweep > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`,
-      color: PIE_COLORS[i % PIE_COLORS.length],
-      pct:   ((value / total) * 100).toFixed(1),
-      tx, ty,
-    };
-  });
+  const onPieLeave = () => {
+    setActiveIndex(null);
+  };
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-100">
+          <p className="text-sm font-semibold text-gray-800">{payload[0].name}</p>
+          <p className="text-sm text-gray-600">{formatBD(payload[0].value)}</p>
+          <p className="text-xs text-gray-400">{payload[0].payload.percent}%</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Calculate percentages
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
+  const dataWithPercent = chartData.map(item => ({
+    ...item,
+    percent: ((item.value / total) * 100).toFixed(1)
+  }));
 
   return (
-    <div className="flex items-center gap-8 flex-wrap">
-      {/* SVG */}
-      <div className="relative shrink-0">
-        <svg viewBox="0 0 160 160" className="w-40 h-40">
-          {slices.map((s, i) => (
-            <path
-              key={i}
-              d={s.path}
-              fill={s.color}
-              stroke="white"
-              strokeWidth={hovered?.label === s.label ? "2.5" : "1.5"}
-              opacity={hovered ? (hovered.label === s.label ? 1 : 0.6) : 1}
-              style={{ cursor: "pointer", transition: "opacity 0.15s, stroke-width 0.15s" }}
-              onMouseEnter={() => setHovered({ label: s.label, value: s.value, pct: s.pct, color: s.color })}
-              onMouseLeave={() => setHovered(null)}
-            />
-          ))}
-        </svg>
-
-        {/* Centre tooltip on hover */}
-        {hovered && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <p className="text-xl font-black leading-tight" style={{ color: hovered.color }}>
-              {hovered.pct}%
-            </p>
-            <p className="text-xs text-gray-600 font-medium text-center px-2 leading-tight">
-              {hovered.label}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatBD(hovered.value)}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-        {slices.map((s, i) => (
-          <div key={i}
-            className="flex items-center gap-2 cursor-pointer"
-            onMouseEnter={() => setHovered({ label: s.label, value: s.value, pct: s.pct, color: s.color })}
-            onMouseLeave={() => setHovered(null)}>
-            <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
-            <span className={`text-xs font-medium truncate max-w-[80px] ${hovered?.label === s.label ? "text-gray-900" : "text-gray-600"}`}>
-              {s.label}
-            </span>
-          </div>
-        ))}
-      </div>
+    <div className="w-full h-80">
+      <ResponsiveContainer width="100%" height="100%">
+        <RePieChart>
+          <Pie
+            data={dataWithPercent}
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={100}
+            paddingAngle={2}
+            dataKey="value"
+            onMouseEnter={onPieEnter}
+            onMouseLeave={onPieLeave}
+          >
+            {dataWithPercent.map((entry, index) => (
+              <Cell 
+                key={`cell-${index}`} 
+                fill={PIE_COLORS[index % PIE_COLORS.length]}
+                stroke={activeIndex === index ? '#fff' : 'none'}
+                strokeWidth={activeIndex === index ? 2 : 0}
+              />
+            ))}
+          </Pie>
+          <Tooltip content={<CustomTooltip />} />
+          <Legend 
+            layout="vertical" 
+            align="right"
+            verticalAlign="middle"
+            formatter={(value, entry) => (
+              <span className="text-sm text-gray-700">{value}</span>
+            )}
+          />
+        </RePieChart>
+      </ResponsiveContainer>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Income vs Expenses grouped bar chart
+// Monthly Bar Chart using Recharts with horizontal scroll
 // ─────────────────────────────────────────────────────────────────────────────
-const IncomeExpensesChart = ({ data }) => {
-  if (!data?.length) return (
-    <div className="flex items-center justify-center h-32"><p className="text-sm text-gray-400">No data yet</p></div>
-  );
-  const maxVal = Math.max(...data.flatMap((d) => [d.income || 0, d.expenses || 0]), 1);
-  const barH   = 100;
-  const colW   = 52;
-  const W      = data.length * colW + 20;
+const MonthlyBarChart = ({ data, months, onMonthsChange }) => {
+  const [showMonths, setShowMonths] = useState(months || 6);
+  
+  if (!data?.length) {
+    return <div className="flex items-center justify-center h-64"><p className="text-sm text-gray-400">No data yet</p></div>;
+  }
+  
+  // Sort and filter data
+  const sortedData = [...data].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  const displayData = sortedData.slice(-showMonths).map(item => ({
+    month: item.month,
+    income: parseFloat(item.income || 0),
+    expenses: parseFloat(item.expenses || 0),
+    savingsRate: item.savingsRate || 0
+  }));
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-100">
+          <p className="text-sm font-semibold text-gray-800 mb-1">{label}</p>
+          <p className="text-sm text-emerald-600">Income: {formatBD(payload[0].value)}</p>
+          <p className="text-sm text-red-500">Expenses: {formatBD(payload[1].value)}</p>
+          <p className="text-xs text-gray-400 mt-1">Savings Rate: {payload[0].payload.savingsRate}%</p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${barH + 30}`} className="w-full" style={{ minWidth: "260px" }}>
-        {[0.25, 0.5, 0.75, 1].map((f) => {
-          const y = barH * (1 - f);
-          return (
-            <g key={f}>
-              <line x1="12" y1={y} x2={W - 4} y2={y} stroke="#f3f4f6" strokeWidth="1" />
-              <text x="10" y={y + 3} fontSize="7" fill="#d1d5db" textAnchor="end">
-                {Math.round(f * maxVal)}
-              </text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => {
-          const x  = i * colW + 16;
-          const iH = Math.max(((d.income   || 0) / maxVal) * barH, 0);
-          const eH = Math.max(((d.expenses || 0) / maxVal) * barH, 0);
-          return (
-            <g key={i}>
-              <rect x={x}      y={barH - iH} width="16" height={iH} fill="#a3b46a" rx="2" />
-              <rect x={x + 18} y={barH - eH} width="16" height={eH} fill="#2c3347" rx="2" />
-              <text x={x + 16} y={barH + 14} fontSize="7.5" fill="#9ca3af" textAnchor="middle">
-                {String(d.month || d.label || "").slice(0, 3)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="flex items-center gap-6 mt-2 px-1">
-        {[["#a3b46a", "Income"], ["#2c3347", "Expenses"]].map(([color, label]) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <div className="w-4 h-3 rounded-sm" style={{ background: color }} />
-            <span className="text-xs text-gray-500">{label}</span>
-          </div>
-        ))}
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-gray-800">Monthly Income vs Expenses</h3>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => { setShowMonths(6); onMonthsChange(6); }}
+            className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+              showMonths === 6 ? "bg-[#2c3347] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}>
+            Current Month
+          </button>
+          <button 
+            onClick={() => { setShowMonths(12); onMonthsChange(12); }}
+            className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+              showMonths === 12 ? "bg-[#2c3347] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}>
+            12 Months
+          </button>
+          
+        </div>
       </div>
+
+      <div className="w-full overflow-x-auto pb-4">
+        <div style={{ minWidth: `${Math.max(600, displayData.length * 70)}px` }}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={displayData}
+              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              barGap={8}
+              barSize={24}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="month" 
+                tick={{ fontSize: 11, fill: '#6b7280' }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                interval={0}
+                angle={-45}
+                textAnchor="end"
+                height={60}
+              />
+              <YAxis 
+                tick={{ fontSize: 11, fill: '#6b7280' }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickFormatter={(value) => formatBDAmount(value)}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend 
+                wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}
+                formatter={(value) => value === 'income' ? 'Income' : 'Expenses'}
+              />
+              <Bar dataKey="income" fill="#a3b46a" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expenses" fill="#2c3347" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      
+      {/* Scroll indicator */}
+      {displayData.length > 8 && (
+        <div className="flex justify-center mt-2 text-xs text-gray-400">
+          <span className="px-2 py-1 bg-gray-50 rounded">← Scroll horizontally for more months →</span>
+        </div>
+      )}
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Weekly chart — Mon to Sun of current week, uses dailySpending from backend
-// The backend provides dailySpending as a Map<date-string, amount>.
-// We pick the 7 days of the current ISO week.
+// Anomalies Section
 // ─────────────────────────────────────────────────────────────────────────────
-const WeeklyChart = ({ dailySpending }) => {
-  // Build current week Mon–Sun labels and amounts
-  const today    = new Date();
-  const dayOfWk  = today.getDay();                          // 0=Sun … 6=Sat
-  const monday   = new Date(today);
-  monday.setDate(today.getDate() - ((dayOfWk + 6) % 7));   // roll back to Monday
-
-  const weekDays = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-  const weekData = weekDays.map((label, i) => {
-    const d   = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    return { label, amount: parseFloat(dailySpending?.[key] || 0) };
-  });
-
-  const maxVal = Math.max(...weekData.map((d) => d.amount), 1);
-  const barH   = 80;
-  const barW   = 22;
-  const colW   = 34;
-
-  if (weekData.every((d) => d.amount === 0)) {
+const AnomaliesSection = ({ anomalies, onDismiss }) => {
+  if (!anomalies || anomalies.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-32 gap-2">
-        <p className="text-sm text-gray-400">No spending this week yet</p>
-        <div className="flex items-end gap-2 opacity-20">
-          {weekDays.map((d) => (
-            <div key={d} className="flex flex-col items-center gap-1">
-              <div className="w-5 bg-[#a3b46a] rounded-t" style={{ height: `${Math.random() * 40 + 10}px` }} />
-              <span className="text-[9px] text-gray-400">{d}</span>
-            </div>
-          ))}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-sm font-bold text-gray-800 mb-4">Spending Anomalies</h3>
+        <div className="flex flex-col items-center justify-center py-8">
+          <p className="text-3xl mb-2">✅</p>
+          <p className="text-sm text-gray-400">No anomalies detected</p>
+          <p className="text-xs text-gray-300 mt-1">Your spending patterns look normal</p>
         </div>
       </div>
     );
   }
 
+  // Severity colors: HIGH=red, MEDIUM=yellow, LOW=green
+  const getSeverityColor = (severity) => {
+    switch(severity) {
+      case 'HIGH': return 'bg-red-50 border-red-200 text-red-700';
+      case 'MEDIUM': return 'bg-yellow-50 border-yellow-200 text-yellow-700';
+      case 'LOW': return 'bg-green-50 border-green-200 text-green-700';
+      default: return 'bg-gray-50 border-gray-200 text-gray-700';
+    }
+  };
+
+  const getSeverityIcon = (severity) => {
+    switch(severity) {
+      case 'HIGH': return '🔴';
+      case 'MEDIUM': return '🟡';
+      case 'LOW': return '🟢';
+      default: return '⚪';
+    }
+  };
+
   return (
-    <div>
-      <svg viewBox={`0 0 ${weekData.length * colW + 10} ${barH + 22}`} className="w-full">
-        {weekData.map((d, i) => {
-          const h = (d.amount / maxVal) * barH;
-          const x = i * colW + 8;
-          const isToday = weekDays[i] === weekDays[(today.getDay() + 6) % 7];
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h3 className="text-sm font-bold text-gray-800 mb-4">Spending Anomalies</h3>
+      <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+        {anomalies.map((anomaly) => {
+          const severityColor = getSeverityColor(anomaly.severity);
+          const severityIcon = getSeverityIcon(anomaly.severity);
+          const date = new Date(anomaly.createdAt).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          });
+
           return (
-            <g key={i}>
-              <rect x={x} y={barH - h} width={barW} height={Math.max(h, 2)}
-                fill={isToday ? "#6b7c3f" : "#a3b46a"} rx="3" opacity="0.85" />
-              <text x={x + barW / 2} y={barH + 14} fontSize="8" fill={isToday ? "#6b7c3f" : "#9ca3af"}
-                textAnchor="middle" fontWeight={isToday ? "700" : "400"}>
-                {d.label}
-              </text>
-            </g>
+            <div key={anomaly.id} className={`p-4 rounded-xl border ${severityColor} relative`}>
+              <button 
+                onClick={() => onDismiss(anomaly.id)}
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors opacity-50 hover:opacity-100 text-sm"
+              >
+                ✕
+              </button>
+              <div className="flex items-start gap-2">
+                <span className="text-lg">{severityIcon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold uppercase px-2 py-0.5 rounded-full bg-white/50">
+                      {anomaly.severity}
+                    </span>
+                    <span className="text-xs opacity-60">{date}</span>
+                  </div>
+                  <p className="text-sm font-medium mb-1">{anomaly.category}</p>
+                  <p className="text-sm leading-relaxed">{anomaly.message}</p>
+                  <div className="flex gap-4 mt-2 text-xs">
+                    <span>Actual: {formatBD(anomaly.actualAmount)}</span>
+                    <span>Average: {formatBD(anomaly.baselineAmount)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           );
         })}
-      </svg>
-      <p className="text-[10px] text-gray-400 text-center mt-1">Current week spending by day</p>
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Anomaly banner
-// ─────────────────────────────────────────────────────────────────────────────
-const AnomalyBanner = ({ anomaly, onDismiss }) => {
-  const cfg = ANOMALY_SEVERITY[anomaly.severity] || ANOMALY_SEVERITY.LOW;
-  return (
-    <div className={`flex items-start gap-3 p-3.5 rounded-xl border ${cfg.bg} ${cfg.border}`}>
-      <span className="shrink-0 mt-0.5">{cfg.icon}</span>
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs font-bold uppercase tracking-wider mb-0.5 opacity-60 ${cfg.text}`}>
-          {anomaly.severity} · {anomaly.category}
-        </p>
-        <p className={`text-sm leading-relaxed ${cfg.text}`}>{anomaly.message}</p>
       </div>
-      <button onClick={() => onDismiss(anomaly.id)}
-        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors opacity-50 hover:opacity-100">
-        ✕
-      </button>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reports popup
+// Stat Card
 // ─────────────────────────────────────────────────────────────────────────────
-const ReportsModal = ({ reports, loading, token, onClose, onViewReport }) => {
+const StatCard = ({ label, value, bg, labelCn, sub }) => (
+  <div className={`${bg} rounded-2xl p-5 shadow-lg`}>
+    <p className={`${labelCn} text-xs font-semibold uppercase tracking-wider mb-1`}>{label}</p>
+    <p className="text-white text-xl font-black">{value}</p>
+    {sub && <p className="text-white/40 text-[10px] mt-1">{sub}</p>}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reports Modal
+// ─────────────────────────────────────────────────────────────────────────────
+const ReportsModal = ({ reports, loading, token, onClose, onViewReport, hasLinkedCard }) => {
   const [generating, setGenerating] = useState(false);
 
   const handleGenerate = async () => {
+    if (!hasLinkedCard) {
+      alert('Please link a card first to generate reports');
+      return;
+    }
     setGenerating(true);
     try {
       const report = await insightsService.generateReport(token);
       onViewReport(report);
       onClose();
-    } catch (err) { console.error("generate:", err.message); }
-    finally       { setGenerating(false); }
+    } catch (err) { console.error(err); }
+    finally { setGenerating(false); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h3 className="text-base font-black text-gray-900">Financial Reports</h3>
@@ -281,22 +324,25 @@ const ReportsModal = ({ reports, loading, token, onClose, onViewReport }) => {
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
-          {/* Generate */}
-          <button onClick={handleGenerate} disabled={generating}
-            className="w-full py-2.5 bg-[#2c3347] hover:bg-[#3d4357] disabled:bg-gray-200 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2">
-            {generating ? <><Spinner size="sm" /> Generating…</> : "✨ Generate New Report"}
+          <button 
+            onClick={handleGenerate} 
+            disabled={generating || !hasLinkedCard}
+            className={`w-full py-2.5 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 ${
+              hasLinkedCard 
+                ? 'bg-[#2c3347] hover:bg-[#3d4357]' 
+                : 'bg-gray-300 cursor-not-allowed'
+            }`}
+          >
+            {generating ? <><Spinner size="sm" /> Generating…</> : 
+             hasLinkedCard ? '✨ Generate New Report' : '🔒 Link card to generate reports'}
           </button>
-          {/* List */}
-          {loading
-            ? Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)
-            : reports.length === 0
-            ? <div className="py-10 text-center"><p className="text-3xl mb-2">📋</p><p className="text-sm text-gray-400">No reports yet.</p></div>
+          {loading ? Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)
+            : reports.length === 0 ? <div className="py-10 text-center"><p className="text-3xl mb-2">📋</p><p className="text-sm text-gray-400">No reports yet.</p></div>
             : reports.map((r) => (
-                <button key={r.id}
-                  onClick={() => { onViewReport(r); onClose(); }}
+                <button key={r.id} onClick={() => { onViewReport(r); onClose(); }}
                   className="flex items-center justify-between gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-xl text-left w-full">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-[#6b7c3f]/10 rounded-lg flex items-center justify-center text-base shrink-0">📊</div>
+                    <div className="w-9 h-9 bg-[#6b7c3f]/10 rounded-lg flex items-center justify-center text-base">📊</div>
                     <div>
                       <p className="text-sm font-semibold text-gray-800">{r.title || "Monthly Report"}</p>
                       <p className="text-xs text-gray-400">{formatReportDate(r.createdAt)}</p>
@@ -304,8 +350,7 @@ const ReportsModal = ({ reports, loading, token, onClose, onViewReport }) => {
                   </div>
                   <span className="text-gray-300 text-sm">›</span>
                 </button>
-              ))
-          }
+              ))}
         </div>
       </div>
     </div>
@@ -313,15 +358,24 @@ const ReportsModal = ({ reports, loading, token, onClose, onViewReport }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inline report display (below "View Reports" button)
+// Report Inline
 // ─────────────────────────────────────────────────────────────────────────────
-const ReportInline = ({ report, loading }) => {
+const ReportInline = ({ report, loading, hasLinkedCard }) => {
   if (loading) return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 flex items-center justify-center gap-3">
       <Spinner color="#6b7c3f" /><span className="text-sm text-gray-400">Loading report…</span>
     </div>
   );
-  // Empty placeholder box matching prototype even when no report yet
+  
+  if (!hasLinkedCard) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <p className="text-3xl mb-2">💳</p>
+        <p className="text-sm text-gray-400">Link a card in Profile → My Card to generate reports</p>
+      </div>
+    );
+  }
+  
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 min-h-[80px]">
       {report ? (
@@ -342,106 +396,99 @@ const ReportInline = ({ report, loading }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stat card
-// ─────────────────────────────────────────────────────────────────────────────
-const StatCard = ({ label, value, bg, labelCn, sub }) => (
-  <div className={`${bg} rounded-2xl p-5 shadow-lg`}>
-    <p className={`${labelCn} text-xs font-semibold uppercase tracking-wider mb-1`}>{label}</p>
-    <p className="text-white text-xl font-black leading-tight">{value}</p>
-    {sub && <p className="text-white/40 text-[10px] mt-1">{sub}</p>}
-  </div>
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Main page
+// Main Page
 // ─────────────────────────────────────────────────────────────────────────────
 const InsightsPage = () => {
-  const { token }  = useAuth();
+  const { token } = useAuth();
   const {
     analytics, analyticsLoading, analyticsError,
     anomalies, anomaliesLoading,
     reports, reportsLoading,
+    hasLinkedCard,
     dismissAnomaly, fetchAnalytics, fetchReports,
     currentMonthName,
   } = useInsights();
 
-  const [months,             setMonths]             = useState(1); // default: current month
-  const [showReportsModal,   setShowReportsModal]   = useState(false);
-  const [activeReport,       setActiveReport]       = useState(null);
-  const [reportLoading,      setReportLoading]      = useState(false);
+  const [months, setMonths] = useState(6);
+  const [showReportsModal, setShowReportsModal] = useState(false);
+  const [activeReport, setActiveReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const monthlyBreakdown = (analytics?.monthlyBreakdown || []).map((d) => ({
-    month: d.month || d.label || "", income: d.income || 0, expenses: d.expenses || 0,
+    month: d.month,
+    sortKey: d.sortKey,
+    income: d.income || 0,
+    expenses: d.expenses || 0,
+    savingsRate: d.savingsRate || 0,
   }));
 
   const handleViewReport = async (r) => {
     if (r?.content) { setActiveReport(r); return; }
     setReportLoading(true);
-    setActiveReport(null);
     try { setActiveReport(await insightsService.getReport(token, r.id)); }
-    catch (err) { console.error("getReport:", err.message); }
-    finally     { setReportLoading(false); }
+    catch (err) { console.error(err); }
+    finally { setReportLoading(false); }
   };
 
-  // Auto-load latest report
   useEffect(() => {
     if (reports.length > 0 && !activeReport) handleViewReport(reports[0]);
-  }, [reports]); // eslint-disable-line
+  }, [reports]);
 
   const handleRangeChange = (m) => {
     setMonths(m);
     fetchAnalytics(m);
   };
 
-  // Label for the spending pie heading
   const pieLabel = months === 1 ? `${currentMonthName} Spending` : `Spending (last ${months} months)`;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
-
       <main className="flex-1 pt-[64px]">
         {/* Hero banner */}
         <div className="bg-[#2c3347] relative overflow-hidden">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="absolute border border-white/10 rounded-full pointer-events-none"
-              style={{ width:`${(i+1)*200}px`, height:`${(i+1)*200}px`, top:"50%", right:"-5%", transform:"translate(0,-50%)" }} />
-          ))}
+          <div className="absolute inset-0 opacity-10">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="absolute border border-white/30 rounded-full"
+                style={{ width: `${(i + 1) * 180}px`, height: `${(i + 1) * 180}px`, top: "50%", right: "-3%", transform: "translate(0,-50%)" }} />
+            ))}
+          </div>
           <div className="relative z-10 max-w-6xl mx-auto px-6 py-10 lg:py-14">
             <p className="text-[#a3b46a] text-xs font-semibold uppercase tracking-widest mb-3">Life Milestone Planner</p>
-            <h1 className="text-3xl lg:text-4xl font-black text-white leading-tight mb-3">
+            <h1 className="text-3xl lg:text-4xl font-black text-white leading-tight">
               Your Path to <span className="text-[#a3b46a]">Financial Freedom</span>
             </h1>
-            <p className="text-gray-400 text-sm max-w-xl leading-relaxed">
-              Track every goal, simulate spending scenarios, and let your AI coach guide you to milestones faster.
-            </p>
           </div>
         </div>
 
         <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col gap-6">
-
           {/* Stat cards */}
           {analyticsLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {[1,2,3].map((i) => <div key={i} className="h-24 bg-gray-200 rounded-2xl animate-pulse" />)}
+              {[1, 2, 3].map((i) => <div key={i} className="h-24 bg-gray-200 rounded-2xl animate-pulse" />)}
             </div>
           ) : analytics ? (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <StatCard
-                label="Account Balance"
+              <StatCard 
+                label="Account Balance" 
                 value={`${formatBDAmount(analytics.totalBalance)} BHD`}
-                bg="bg-[#6b7c3f]" labelCn="text-[#c5d48a]"
-                sub="Plaid balance + salary"
+                bg="bg-[#6b7c3f]" 
+                labelCn="text-[#c5d48a]" 
+                sub="Plaid balance + all income" 
               />
-              <StatCard
-                label="Monthly Spending"
+              <StatCard 
+                label="Monthly Spending" 
                 value={`${formatBDAmount(analytics.totalExpenses)} BHD`}
-                bg="bg-[#3d4357]" labelCn="text-gray-400"
+                bg="bg-[#3d4357]" 
+                labelCn="text-gray-400" 
+                sub="This month only" 
               />
-              <StatCard
-                label="Monthly Income"
+              <StatCard 
+                label="Monthly Income" 
                 value={`${formatBDAmount(analytics.totalIncome)} BHD`}
-                bg="bg-[#2c3347]" labelCn="text-gray-400"
+                bg="bg-[#2c3347]" 
+                labelCn="text-gray-400" 
+                sub="Salary + this month's credits" 
               />
             </div>
           ) : analyticsError ? (
@@ -450,24 +497,19 @@ const InsightsPage = () => {
             </div>
           ) : null}
 
-          {/* Anomaly banners */}
-          {!anomaliesLoading && anomalies.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {anomalies.slice(0, 3).map((a) => (
-                <AnomalyBanner key={a.id} anomaly={a} onDismiss={dismissAnomaly} />
-              ))}
-            </div>
-          )}
-
           {/* Time range selector */}
           {analytics && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-400 font-medium mr-1">Show:</span>
               {ANALYTICS_RANGES.map(({ value, label }) => (
-                <button key={value} onClick={() => handleRangeChange(value)}
+                <button 
+                  key={value} 
+                  onClick={() => handleRangeChange(value)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                     months === value ? "bg-[#2c3347] text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}>{label}</button>
+                  }`}>
+                  {label}
+                </button>
               ))}
             </div>
           )}
@@ -475,53 +517,69 @@ const InsightsPage = () => {
           {/* Charts */}
           {analyticsLoading ? (
             <div className="flex flex-col gap-5">
-              <div className="h-56 bg-white rounded-2xl border border-gray-100 animate-pulse" />
+              <div className="h-64 bg-white rounded-2xl border border-gray-100 animate-pulse" />
               <div className="grid grid-cols-2 gap-5">
-                <div className="h-44 bg-white rounded-2xl border border-gray-100 animate-pulse" />
-                <div className="h-44 bg-white rounded-2xl border border-gray-100 animate-pulse" />
+                <div className="h-64 bg-white rounded-2xl border border-gray-100 animate-pulse" />
+                <div className="h-64 bg-white rounded-2xl border border-gray-100 animate-pulse" />
               </div>
             </div>
           ) : analytics ? (
             <div className="flex flex-col gap-5">
-              {/* Spending pie */}
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                <h3 className="text-sm font-bold text-gray-800 mb-4">{pieLabel}</h3>
+              {/* Spending pie - using Recharts */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                <h3 className="text-base font-bold text-gray-800 mb-6">{pieLabel}</h3>
                 <PieChart data={analytics.spendingByCategory} />
               </div>
 
-              {/* Income vs Expenses + Weekly */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <h3 className="text-sm font-bold text-gray-800 mb-4">Income Vs Expenses</h3>
-                  <IncomeExpensesChart data={monthlyBreakdown} />
+              {/* Bar Chart + Anomalies - side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                  <MonthlyBarChart 
+                    data={monthlyBreakdown} 
+                    months={months}
+                    onMonthsChange={handleRangeChange}
+                  />
                 </div>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <h3 className="text-sm font-bold text-gray-800 mb-1">Weekly</h3>
-                  <WeeklyChart dailySpending={analytics.dailySpending} />
-                </div>
+                <AnomaliesSection 
+                  anomalies={anomalies} 
+                  onDismiss={dismissAnomaly} 
+                />
               </div>
             </div>
           ) : null}
 
-          {/* View Reports button */}
+          {/* View Reports button - disabled if no card */}
           <div className="flex justify-end">
-            <button
-              onClick={() => { fetchReports(); setShowReportsModal(true); }}
-              className="px-8 py-3 bg-[#6b7c3f] hover:bg-[#5a6a33] text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5">
+            <button 
+              onClick={() => { 
+                if (hasLinkedCard) {
+                  fetchReports(); 
+                  setShowReportsModal(true);
+                } else {
+                  alert('Please link a card first to view reports');
+                }
+              }}
+              className={`px-8 py-3 text-white font-bold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all ${
+                hasLinkedCard 
+                  ? 'bg-[#6b7c3f] hover:bg-[#5a6a33]' 
+                  : 'bg-gray-300 cursor-not-allowed'
+              }`}>
               View Reports
             </button>
           </div>
 
           {/* Inline report */}
-          <ReportInline report={activeReport} loading={reportLoading} />
+          <ReportInline report={activeReport} loading={reportLoading} hasLinkedCard={hasLinkedCard} />
         </div>
       </main>
-
       <Footer />
 
       {showReportsModal && (
         <ReportsModal
-          reports={reports} loading={reportsLoading} token={token}
+          reports={reports} 
+          loading={reportsLoading} 
+          token={token}
+          hasLinkedCard={hasLinkedCard}
           onClose={() => setShowReportsModal(false)}
           onViewReport={(r) => { setShowReportsModal(false); handleViewReport(r); }}
         />

@@ -27,11 +27,9 @@ public class PlaidController {
     private final PlaidService plaidService;
     private final TransactionService transactionService;
 
-    //  Full Plaid Flow Endpoints 
-
     @PostMapping("/create-link-token")
     public ResponseEntity<PlaidLinkResponse> createLinkToken(@RequestBody Map<String, String> request) {
-        String bankId = request.get("bankId"); // User selected "NBB", "BBK", etc. (for display only)
+        String bankId = request.get("bankId");
         String token = plaidService.createLinkToken();
         return ResponseEntity.ok(PlaidLinkResponse.builder().linkToken(token).build());
     }
@@ -40,13 +38,11 @@ public class PlaidController {
     public ResponseEntity<String> exchangeToken(@RequestBody Map<String, Object> request) {
         String publicToken = (String) request.get("publicToken");
         String bankId = (String) request.get("bankId");
-        String institutionName = (String) request.get("institutionName"); // From Plaid (ignored)
+        String institutionName = (String) request.get("institutionName");
         
         plaidService.exchangeTokenAndSave(publicToken, bankId, institutionName);
         return ResponseEntity.ok("Bank account linked successfully!");
     }
-
-    // Manual card linking endpoint 
 
     @PostMapping("/link-card")
     public ResponseEntity<String> linkCard(@Valid @RequestBody LinkCardRequest request) {
@@ -54,20 +50,17 @@ public class PlaidController {
         return ResponseEntity.ok("Bank card linked successfully!");
     }
 
-    // Sync transactions 
-
     @PostMapping("/sync")
     public ResponseEntity<String> syncTransactions() {
         plaidService.syncTransactions();
         return ResponseEntity.ok("Transactions synced successfully!");
     }
 
-    // Get transactions with pagination, search, filter, and sort
-
     @GetMapping("/transactions")
     public ResponseEntity<Page<TransactionResponse>> getTransactions(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String type,
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) String sortBy,
@@ -77,10 +70,9 @@ public class PlaidController {
 
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(
-                transactionService.getTransactions(search, category, month, year, sortBy, sortDir, pageable));
+                transactionService.getTransactions(search, category, type, month, year, sortBy, sortDir, pageable));
     }
 
-    // Get all accounts for the current user
     @GetMapping("/accounts")
     public ResponseEntity<List<AccountResponse>> getAccounts() {
         List<Account> accounts = plaidService.getCurrentUserAccounts();
