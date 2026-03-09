@@ -3,9 +3,11 @@ package com.pathwise.backend.controller;
 import com.pathwise.backend.dto.*;
 import com.pathwise.backend.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -15,56 +17,72 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-@Tag(name = "Authentication", description = "Registration, login, email verification, and password reset")
+@Tag(name = "Authentication", description = "User registration, email verification, and login endpoints")
 public class AuthController {
 
     private final AuthService authService;
 
-    // ── Register ──────────────────────────────────────────────────────────────
+    // ── POST /api/auth/register ───────────────────────────────────────────────
 
     @PostMapping("/register")
-    @Operation(summary = "Register a new user",
-            description = "Creates the account and sends a 6-digit email verification code. No JWT is returned here.")
+    @Operation(
+            summary = "Register a new user",
+            description = "Creates a new user account and sends a 6-digit OTP to the provided email. " +
+                    "The account cannot be used until the email is verified via /verify-email."
+    )
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Account created — verification email sent"),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "409", description = "Email or phone already registered")
+            @ApiResponse(responseCode = "201", description = "Registration successful — verification email sent",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = MessageResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid input data"),
+            @ApiResponse(responseCode = "409", description = "Email already registered"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<MessageResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
-    // ── Email verification ─────────────────────────────────────────────────────
+    // ── POST /api/auth/verify-email ───────────────────────────────────────────
 
     @PostMapping("/verify-email")
-    @Operation(summary = "Verify email address",
-            description = "Validates the 6-digit OTP sent at registration. Returns a JWT on success.")
+    @Operation(
+            summary = "Verify email with OTP",
+            description = "Validates the 6-digit OTP sent during registration and returns a JWT token."
+    )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Email verified — JWT returned"),
-            @ApiResponse(responseCode = "400", description = "Invalid or expired code")
+            @ApiResponse(responseCode = "200", description = "Email verified — JWT token returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = AuthResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid or expired OTP")
     })
     public ResponseEntity<AuthResponse> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
         return ResponseEntity.ok(authService.verifyEmail(request));
     }
 
+    // ── POST /api/auth/resend-verification ────────────────────────────────────
+
     @PostMapping("/resend-verification")
-    @Operation(summary = "Resend email verification code",
-            description = "Issues a new OTP and invalidates the previous one. Rate-limit this endpoint in production.")
+    @Operation(
+            summary = "Resend verification OTP",
+            description = "Issues a new 6-digit OTP and invalidates the previous one."
+    )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "New code sent"),
-            @ApiResponse(responseCode = "400", description = "Email not found or already verified")
+            @ApiResponse(responseCode = "200", description = "New OTP sent"),
+            @ApiResponse(responseCode = "400", description = "Invalid request")
     })
     public ResponseEntity<MessageResponse> resendVerification(@Valid @RequestBody ResendCodeRequest request) {
         return ResponseEntity.ok(authService.resendVerification(request));
     }
 
-    // ── Login ─────────────────────────────────────────────────────────────────
+    // ── POST /api/auth/login ──────────────────────────────────────────────────
 
     @PostMapping("/login")
-    @Operation(summary = "Login",
-            description = "Authenticates credentials and returns a JWT. Returns 403 EMAIL_NOT_VERIFIED if the account has not been verified.")
+    @Operation(
+            summary = "Login",
+            description = "Authenticates credentials and returns a JWT token. " +
+                    "Returns 403 EMAIL_NOT_VERIFIED if the email has not been verified."
+    )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Login successful — JWT returned"),
+            @ApiResponse(responseCode = "200", description = "Login successful — JWT returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = AuthResponse.class))),
             @ApiResponse(responseCode = "401", description = "Invalid credentials"),
             @ApiResponse(responseCode = "403", description = "Email not verified")
     })
@@ -72,33 +90,48 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request));
     }
 
-    // ── Password reset ─────────────────────────────────────────────────────────
+    // ── POST /api/auth/forgot-password ────────────────────────────────────────
 
     @PostMapping("/forgot-password")
-    @Operation(summary = "Request password reset",
-            description = "Sends a 6-digit reset code to the email. Always returns 200 — never reveals whether the email is registered.")
-    @ApiResponse(responseCode = "200", description = "Reset code sent (or silently ignored if email not found)")
+    @Operation(
+            summary = "Request a password reset OTP",
+            description = "Sends a 6-digit reset OTP if the email is registered. " +
+                    "Always returns 200 to prevent email enumeration."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Reset code sent (if email exists)"),
+            @ApiResponse(responseCode = "400", description = "Invalid email format")
+    })
     public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         return ResponseEntity.ok(authService.forgotPassword(request));
     }
 
+    // ── POST /api/auth/verify-reset-code ─────────────────────────────────────
+
     @PostMapping("/verify-reset-code")
-    @Operation(summary = "Verify password reset code",
-            description = "Validates the 6-digit OTP. Returns a short-lived one-use resetToken on success.")
+    @Operation(
+            summary = "Verify password reset OTP",
+            description = "Validates the 6-digit reset OTP and returns a short-lived resetToken."
+    )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Code valid — resetToken returned"),
-            @ApiResponse(responseCode = "400", description = "Invalid or expired code")
+            @ApiResponse(responseCode = "200", description = "OTP valid — resetToken returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ResetTokenResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid or expired OTP")
     })
     public ResponseEntity<ResetTokenResponse> verifyResetCode(@Valid @RequestBody VerifyResetCodeRequest request) {
         return ResponseEntity.ok(authService.verifyResetCode(request));
     }
 
+    // ── POST /api/auth/reset-password ────────────────────────────────────────
+
     @PostMapping("/reset-password")
-    @Operation(summary = "Reset password",
-            description = "Sets a new password using the resetToken obtained from /verify-reset-code.")
+    @Operation(
+            summary = "Reset password",
+            description = "Sets a new password using the resetToken from /verify-reset-code. Single-use."
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Password updated"),
-            @ApiResponse(responseCode = "400", description = "Invalid, expired, or already-used resetToken")
+            @ApiResponse(responseCode = "400", description = "Invalid or expired resetToken")
     })
     public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         return ResponseEntity.ok(authService.resetPassword(request));
