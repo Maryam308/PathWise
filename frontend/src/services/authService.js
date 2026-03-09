@@ -34,47 +34,55 @@
      Returns: { message: "Password updated" }
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// Auth endpoints are public (no token) so apiFetch is used only for
+// network-down protection, not 401 interception.
+import { apiFetch } from "./apiClient.js";
+
 export const authService = {
 
   async register({ fullName, email, password, monthlySalary, phone, monthlyExpenses }) {
-    const res = await fetch("/api/auth/register", {
+    const res = await apiFetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fullName, email, password, monthlySalary: monthlySalary || 0, phone: phone || "", preferredCurrency: "BHD", monthlyExpenses: monthlyExpenses || [] }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Registration failed");
     return data;
   },
 
   async verifyEmail({ email, code }) {
-    const res = await fetch("/api/auth/verify-email", {
+    const res = await apiFetch("/api/auth/verify-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, code }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Verification failed");
     return data;
   },
 
   async resendVerification({ email }) {
-    const res = await fetch("/api/auth/resend-verification", {
+    const res = await apiFetch("/api/auth/resend-verification", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Failed to resend code");
     return data;
   },
 
   async login({ email, password }) {
-    const res = await fetch("/api/auth/login", {
+    const res = await apiFetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) {
       if (res.status === 403 && data.error === "EMAIL_NOT_VERIFIED") {
@@ -88,33 +96,36 @@ export const authService = {
   },
 
   async forgotPassword({ email }) {
-    const res = await fetch("/api/auth/forgot-password", {
+    const res = await apiFetch("/api/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok && res.status !== 404) throw new Error(data.message || data.error || "Request failed");
     return data;
   },
 
   async verifyResetCode({ email, code }) {
-    const res = await fetch("/api/auth/verify-reset-code", {
+    const res = await apiFetch("/api/auth/verify-reset-code", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, code }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Invalid or expired code");
     return data;
   },
 
   async resetPassword({ resetToken, newPassword }) {
-    const res = await fetch("/api/auth/reset-password", {
+    const res = await apiFetch("/api/auth/reset-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resetToken, newPassword }),
     });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Password reset failed");
     return data;
@@ -123,16 +134,18 @@ export const authService = {
 
 export const profileService = {
   getProfile: async (token) => {
-    const res = await fetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
+    const res = await apiFetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
+    if (!res) return;
     if (!res.ok) throw new Error("Failed to fetch profile");
     return res.json();
   },
   updateProfile: async (token, data) => {
-    const res = await fetch("/api/profile", {
+    const res = await apiFetch("/api/profile", {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(data),
     });
+    if (!res) return;
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message || "Failed to update profile");
     return body;
@@ -142,13 +155,14 @@ export const profileService = {
 export const expenseService = {
   getAll: async (token) => {
     try {
-      const res = await fetch("/api/expenses", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch("/api/expenses", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res) return [];
       if (res.ok) return res.json();
       if (res.status !== 404) { const d = await res.json().catch(() => ({})); throw new Error(d.message || `Failed to fetch expenses (${res.status})`); }
     } catch (err) { if (!err.message?.includes("404") && !err.message?.includes("fetch")) throw err; }
     try {
-      const res = await fetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return [];
+      const res = await apiFetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res || !res.ok) return [];
       const profile = await res.json();
       return profile.monthlyExpenses || profile.expenses || [];
     } catch { return []; }

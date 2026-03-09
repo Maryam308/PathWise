@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 
 const AuthContext = createContext(null);
 
@@ -29,6 +29,12 @@ export const AuthProvider = ({ children }) => {
     setTimeout(() => setLoggingOut(false), 100);
   }, []);
 
+  // Listen for auth:logout events dispatched by apiClient
+  // when a 401 or network failure is caught mid-session
+  useEffect(() => {
+    window.addEventListener("auth:logout", logout);
+    return () => window.removeEventListener("auth:logout", logout);
+  }, [logout]);
 
   const updateUser = useCallback((newUserData) => {
     setUser(newUserData);
