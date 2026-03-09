@@ -1,5 +1,3 @@
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
-
 /**
  * Helper function to format deadline to YYYY-MM
  */
@@ -43,7 +41,7 @@ export const goalService = {
    * This is needed when there are no goals to get the financial data.
    */
   getFinancialSnapshot: async (token) => {
-    const res = await fetch(`${API_BASE}/api/goals/snapshot`, {
+    const res = await fetch("/api/goals/snapshot", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json().catch(() => ({}));
@@ -64,7 +62,7 @@ export const goalService = {
    * Fetch all goals for the authenticated user.
    */
   getAll: async (token) => {
-    const res = await fetch(`${API_BASE}/api/goals`, {
+    const res = await fetch("/api/goals", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -78,7 +76,7 @@ export const goalService = {
    * Fetch a single goal by ID.
    */
   getById: async (token, id) => {
-    const res = await fetch(`${API_BASE}/api/goals/${id}`, {
+    const res = await fetch(`/api/goals/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -100,7 +98,7 @@ export const goalService = {
       deadline: formatDeadline(data.deadline)
     };
 
-    const res = await fetch(`${API_BASE}/api/goals`, {
+    const res = await fetch("/api/goals", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -123,7 +121,7 @@ export const goalService = {
       deadline: formatDeadline(data.deadline)
     };
 
-    const res = await fetch(`${API_BASE}/api/goals/${id}`, {
+    const res = await fetch(`/api/goals/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -140,7 +138,7 @@ export const goalService = {
    * Delete a goal by ID.
    */
   remove: async (token, id) => {
-    const res = await fetch(`${API_BASE}/api/goals/${id}`, {
+    const res = await fetch(`/api/goals/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -157,7 +155,7 @@ export const goalService = {
    * @param {number} monthlySavingsRate  — BD amount per month
    */
   getProjection: async (token, goalId, monthlySavingsRate) => {
-    const res = await fetch(`${API_BASE}/api/goals/${goalId}/projection`, {
+    const res = await fetch(`/api/goals/${goalId}/projection`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -176,7 +174,7 @@ export const goalService = {
    * @param {{ goalId, currentMonthlySavingsTarget, spendingAdjustments }} data
    */
   simulate: async (token, data) => {
-    const res = await fetch(`${API_BASE}/api/simulations`, {
+    const res = await fetch("/api/simulations", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -195,7 +193,7 @@ export const goalService = {
    * Returns [{ category, amount, label }]
    */
   getExpenses: async (token) => {
-    const res = await fetch(`${API_BASE}/api/expenses`, {
+    const res = await fetch("/api/expenses", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {

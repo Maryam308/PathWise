@@ -29,10 +29,24 @@ export const AuthProvider = ({ children }) => {
     setTimeout(() => setLoggingOut(false), 100);
   }, []);
 
+
+  const updateUser = useCallback((newUserData) => {
+    setUser(newUserData);
+    localStorage.setItem("pathwise_user", JSON.stringify(newUserData));
+  }, []);
+
   const isAuthenticated = !!token;
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated, loggingOut }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      login,
+      logout,
+      isAuthenticated,
+      loggingOut,
+      updateUser
+    }}>
       {children}
     </AuthContext.Provider>
   );

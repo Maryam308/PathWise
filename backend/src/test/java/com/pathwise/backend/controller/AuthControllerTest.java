@@ -3,11 +3,13 @@ package com.pathwise.backend.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pathwise.backend.config.TestDataFactory;
 import com.pathwise.backend.config.TestSecurityConfig;
+import com.pathwise.backend.config.TestJwtConfig;
 import com.pathwise.backend.dto.*;
 import com.pathwise.backend.exception.*;
 import com.pathwise.backend.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -21,7 +23,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AuthController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})
+@ActiveProfiles("test")
 class AuthControllerTest {
 
     @Autowired private MockMvc mockMvc;

@@ -10,17 +10,33 @@ spring:
       ddl-auto: create-drop
     show-sql: true
   flyway:
-    enabled: false  # Disable Flyway for tests
+    enabled: false
   h2:
     console:
       enabled: true
+  mail:
+    host: localhost
+    port: 3025
+    username: test
+    password: test
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
 groq:
-  api-key: ${GROQ_API_KEY}
+  api-key: test-groq-key-mock-value
 
 jwt:
-  secret: ${JWT_SECRET}
+  secret: dGVzdC1zZWNyZXQta2V5LWZvci11bml0LXRlc3RzLW9ubHktMjAyNA==
   expiration: 86400000
+
+cors:
+  allowed-origins: http://localhost:5173
 
 logging:
   level:
     org.springframework.security: DEBUG
+    org.springframework.web: INFO

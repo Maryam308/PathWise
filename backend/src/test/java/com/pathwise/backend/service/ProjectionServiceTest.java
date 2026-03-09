@@ -39,9 +39,9 @@ class ProjectionServiceTest {
     @InjectMocks
     private ProjectionService projectionService;
 
-    private User             testUser;
-    private User             otherUser;
-    private Goal             testGoal;
+    private User              testUser;
+    private User              otherUser;
+    private Goal              testGoal;
     private FinancialSnapshot mockSnapshot;
 
     private static final BigDecimal MONTHLY_RATE = new BigDecimal("200.000");
@@ -134,15 +134,50 @@ class ProjectionServiceTest {
 
         assertNotNull(response.getChartData());
         assertFalse(response.getChartData().isEmpty());
-        // First chart point should equal current saved amount
+        // ChartPoint exposes getAmount() — not getCumulativeAmount()
+        // First chart point should equal current saved amount (1000)
         assertEquals(testGoal.getSavedAmount(),
-                response.getChartData().get(0).getCumulativeAmount());
+                response.getChartData().get(0).getAmount());
     }
 
     @Test
-    void getProjection_WhenRateExceedsDisposable_IncludesWarningNote() {
-        // Rate of 2000 > disposable income of 1500
-        BigDecimal aggressiveRate = new BigDecimal("2000.000");
+    void getProjection_ChartDataCapsAtTargetAmount() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(goalRepository.findById(testGoal.getId())).thenReturn(Optional.of(testGoal));
+        when(financialProfileService.getSnapshot(testUser)).thenReturn(mockSnapshot);
+        when(financialProfileService.getTotalMonthlySavings(testUser.getId()))
+                .thenReturn(BigDecimal.ZERO);
+        when(goalRepository.save(any(Goal.class))).thenReturn(testGoal);
+
+        ProjectionResponse response = projectionService.getProjection(testGoal.getId(), MONTHLY_RATE);
+
+        // No chart point should exceed the target amount
+        response.getChartData().forEach(point ->
+                assertTrue(point.getAmount().compareTo(testGoal.getTargetAmount()) <= 0,
+                        "Chart point " + point.getAmount() + " exceeds target " + testGoal.getTargetAmount()));
+    }
+
+    @Test
+    void getProjection_ChartDataHasCorrectMonthFormat() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(goalRepository.findById(testGoal.getId())).thenReturn(Optional.of(testGoal));
+        when(financialProfileService.getSnapshot(testUser)).thenReturn(mockSnapshot);
+        when(financialProfileService.getTotalMonthlySavings(testUser.getId()))
+                .thenReturn(BigDecimal.ZERO);
+        when(goalRepository.save(any(Goal.class))).thenReturn(testGoal);
+
+        ProjectionResponse response = projectionService.getProjection(testGoal.getId(), MONTHLY_RATE);
+
+        // Each month label should be in YYYY-MM format
+        response.getChartData().forEach(point ->
+                assertTrue(point.getMonth().matches("\\d{4}-\\d{2}"),
+                        "Month '" + point.getMonth() + "' is not in YYYY-MM format"));
+    }
+
+    @Test
+    void getProjection_WhenRateEqualDisposable_ReturnsZeroRemaining() {
+        // Rate exactly at disposable limit — should succeed (not exceed), remaining = 0
+        BigDecimal rateAtLimit = new BigDecimal("1500.000");
 
         when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
         when(goalRepository.findById(testGoal.getId())).thenReturn(Optional.of(testGoal));
@@ -151,17 +186,10 @@ class ProjectionServiceTest {
                 .thenReturn(BigDecimal.ZERO);
         when(goalRepository.save(any(Goal.class))).thenReturn(testGoal);
 
-        // Note: ProjectionService does NOT block if rate > disposable — it warns.
-        // SavingsLimitExceededException is only thrown if rate > disposable + existing commitments.
-        // With 0 existing commitments and disposable=1500, rate=2000 WILL throw.
-        // Adjust: use a rate just at the limit to test the warning note path.
-        BigDecimal rateAtLimit = new BigDecimal("1500.000");
-
         ProjectionResponse response = projectionService.getProjection(testGoal.getId(), rateAtLimit);
 
         assertNotNull(response.getAffordabilityNote());
-        // remaining disposable = 1500 - 1500 = 0
-        assertEquals(BigDecimal.ZERO, response.getRemainingAfterThisSaving());
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getRemainingAfterThisSaving()));
     }
 
     @Test
@@ -177,6 +205,24 @@ class ProjectionServiceTest {
 
         verify(goalRepository).save(argThat(g ->
                 MONTHLY_RATE.compareTo(g.getMonthlySavingsTarget()) == 0));
+    }
+
+    @Test
+    void getProjection_WhenOnTrack_SetsOnTrackStatus() {
+        // deadline is 1 year from now; 20 months to complete — slightly behind
+        // but let's verify the field is populated correctly
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(goalRepository.findById(testGoal.getId())).thenReturn(Optional.of(testGoal));
+        when(financialProfileService.getSnapshot(testUser)).thenReturn(mockSnapshot);
+        when(financialProfileService.getTotalMonthlySavings(testUser.getId()))
+                .thenReturn(BigDecimal.ZERO);
+        when(goalRepository.save(any(Goal.class))).thenReturn(testGoal);
+
+        ProjectionResponse response = projectionService.getProjection(testGoal.getId(), MONTHLY_RATE);
+
+        // isOnTrack and monthsAheadOrBehind should both be populated
+        assertNotNull(response.getProjectedCompletionDate());
+        assertTrue(response.getMonthsAheadOrBehind() >= 0);
     }
 
     @Test

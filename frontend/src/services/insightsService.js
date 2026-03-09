@@ -1,9 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// services/insightsService.js
-// ─────────────────────────────────────────────────────────────────────────────
-
-const BASE = import.meta.env.VITE_BACKEND_URL;
-
 const authHeaders = (token) => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${token}`,
@@ -22,7 +16,7 @@ export const insightsService = {
   // Returns: { totalBalance, totalIncome, totalExpenses,
   //            spendingByCategory, monthlyBreakdown, dailySpending }
   getAnalytics: (token, months = 3) =>
-    fetch(`${BASE}/api/analytics?months=${months}`, {
+    fetch(`/api/analytics?months=${months}`, {
       headers: authHeaders(token),
     }).then(handleResponse),
 
@@ -38,40 +32,40 @@ export const insightsService = {
     if (params.year     != null) q.set("year",     params.year);
     if (params.sortBy)           q.set("sortBy",   params.sortBy);
     if (params.sortDir)          q.set("sortDir",  params.sortDir);
-    return fetch(`${BASE}/api/plaid/transactions?${q}`, {
+    return fetch(`/api/plaid/transactions?${q}`, {
       headers: authHeaders(token),
     }).then(handleResponse);
   },
 
   // ── Reports ────────────────────────────────────────────────────────────────
   getReports: async (token) => {
-    const data = await fetch(`${BASE}/api/reports`, {
+    const data = await fetch("/api/reports", {
       headers: authHeaders(token),
     }).then(handleResponse);
     return Array.isArray(data) ? data : [];
   },
 
   getReport: (token, id) =>
-    fetch(`${BASE}/api/reports/${id}`, {
+    fetch(`/api/reports/${id}`, {
       headers: authHeaders(token),
     }).then(handleResponse),
 
   generateReport: (token) =>
-    fetch(`${BASE}/api/reports/generate`, {
+    fetch("/api/reports/generate", {
       method: "POST",
       headers: authHeaders(token),
     }).then(handleResponse),
 
   // ── Anomalies ──────────────────────────────────────────────────────────────
   getAnomalies: async (token) => {
-    const data = await fetch(`${BASE}/api/anomalies`, {
+    const data = await fetch("/api/anomalies", {
       headers: authHeaders(token),
     }).then(handleResponse);
     return Array.isArray(data) ? data : [];
   },
 
   dismissAnomaly: (token, id) =>
-    fetch(`${BASE}/api/anomalies/${id}/dismiss`, {
+    fetch(`/api/anomalies/${id}/dismiss`, {
       method: "PATCH",
       headers: authHeaders(token),
     }).then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); }),
@@ -80,21 +74,21 @@ export const insightsService = {
   // POST /api/plaid/link-card
   // Body: { cardHolderName, cardNumber, lastFourDigits, expiryMonth, expiryYear, bank }
   linkCard: (token, cardData) =>
-    fetch(`${BASE}/api/plaid/link-card`, {
+    fetch("/api/plaid/link-card", {
       method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify(cardData),
     }).then(handleResponse),
 
   syncTransactions: (token) =>
-    fetch(`${BASE}/api/plaid/sync`, {
+    fetch("/api/plaid/sync", {
       method: "POST",
       headers: authHeaders(token),
     }).then(handleResponse),
 
   // GET /api/plaid/accounts
   getAccounts: async (token) => {
-    const data = await fetch(`${BASE}/api/plaid/accounts`, {
+    const data = await fetch("/api/plaid/accounts", {
       headers: authHeaders(token),
     }).then(handleResponse);
     return Array.isArray(data) ? data : [];

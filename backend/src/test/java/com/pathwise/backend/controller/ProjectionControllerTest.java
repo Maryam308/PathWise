@@ -5,11 +5,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pathwise.backend.config.TestDataFactory;
 import com.pathwise.backend.config.TestSecurityConfig;
 import com.pathwise.backend.dto.ProjectionRequest;
+import com.pathwise.backend.config.TestJwtConfig;
 import com.pathwise.backend.dto.ProjectionResponse;
 import com.pathwise.backend.exception.GoalNotFoundException;
 import com.pathwise.backend.exception.SavingsLimitExceededException;
 import com.pathwise.backend.service.ProjectionService;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.test.context.ActiveProfiles;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -32,7 +34,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ProjectionController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})
+@ActiveProfiles("test")
 class ProjectionControllerTest {
 
     @Autowired private MockMvc mockMvc;
@@ -88,7 +91,7 @@ class ProjectionControllerTest {
                 .andExpect(jsonPath("$.goalId").value(goalId.toString()))
                 .andExpect(jsonPath("$.goalName").value("Emergency Fund"))
                 .andExpect(jsonPath("$.monthsNeeded").value(20))
-                .andExpect(jsonPath("$.isOnTrack").value(true));
+                .andExpect(jsonPath("$.onTrack").value(true));
     }
 
     @Test

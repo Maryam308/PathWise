@@ -1,15 +1,17 @@
 package com.pathwise.backend.controller;
-
+import com.pathwise.backend.config.TestJwtConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pathwise.backend.config.TestDataFactory;
 import com.pathwise.backend.config.TestSecurityConfig;
 import com.pathwise.backend.dto.RegisterRequest;
 import com.pathwise.backend.enums.ExpenseCategory;
+import com.pathwise.backend.repository.MonthlyExpenseRepository;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.UserRepository;
 import com.pathwise.backend.service.FinancialProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -32,7 +34,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ExpenseController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})
+@ActiveProfiles("test")
 class ExpenseControllerTest {
 
     @Autowired
@@ -46,6 +49,9 @@ class ExpenseControllerTest {
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @MockitoBean
+    private com.pathwise.backend.repository.MonthlyExpenseRepository monthlyExpenseRepository;
 
     private List<RegisterRequest.ExpenseItem> validExpenses;
     private User testUser;

@@ -8,6 +8,7 @@ import com.pathwise.backend.enums.GoalPriority;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.EmailVerificationTokenRepository;
 import com.pathwise.backend.repository.GoalRepository;
+import com.pathwise.backend.repository.SimulationRepository;
 import com.pathwise.backend.repository.UserRepository;
 import com.pathwise.backend.security.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ class GoalIntegrationTest {
     @Autowired private GoalRepository goalRepository;
     @Autowired private EmailVerificationTokenRepository tokenRepository;
     @Autowired private JwtUtil jwtUtil;
+    @Autowired private SimulationRepository simulationRepository;
 
     // Phone must be exactly 8 digits — no country code prefix
     private static final String VALID_PHONE = "33445566";
@@ -45,9 +47,10 @@ class GoalIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        goalRepository.deleteAll();
-        tokenRepository.deleteAll();
-        userRepository.deleteAll();
+        simulationRepository.deleteAll();  // Delete simulations first (they reference goals)
+        goalRepository.deleteAll();        // Then delete goals
+        tokenRepository.deleteAll();       // Then delete tokens (they reference users)
+        userRepository.deleteAll();        // Finally delete users
 
         // Register a user
         RegisterRequest registerRequest = new RegisterRequest();

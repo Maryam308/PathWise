@@ -1,6 +1,8 @@
 package com.pathwise.backend.integration;
-
+import com.pathwise.backend.repository.EmailVerificationTokenRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pathwise.backend.repository.GoalRepository;
+import com.pathwise.backend.repository.SimulationRepository;
 import com.pathwise.backend.dto.LoginRequest;
 import com.pathwise.backend.dto.RegisterRequest;
 import com.pathwise.backend.repository.UserRepository;
@@ -17,7 +19,6 @@ import java.math.BigDecimal;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -26,13 +27,18 @@ class AuthIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private UserRepository userRepository;
-
+    @Autowired private SimulationRepository simulationRepository;
+    @Autowired private GoalRepository goalRepository;
+    @Autowired private EmailVerificationTokenRepository tokenRepository;
     // Note: phone must be exactly 8 digits (no country code) per RegisterRequest @Pattern
     private static final String VALID_PHONE = "33445566";
 
     @BeforeEach
     void setUp() {
-        userRepository.deleteAll();
+        simulationRepository.deleteAll();  // Delete simulations first (they reference goals)
+        goalRepository.deleteAll();        // Then delete goals (they reference users)
+        tokenRepository.deleteAll();       // Then delete tokens (they reference users)
+        userRepository.deleteAll();        // Finally delete users
     }
 
     // ── Registration ──────────────────────────────────────────────────────────

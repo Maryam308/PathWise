@@ -3,12 +3,14 @@ package com.pathwise.backend.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pathwise.backend.config.TestDataFactory;
+import com.pathwise.backend.config.TestJwtConfig;
 import com.pathwise.backend.config.TestSecurityConfig;
 import com.pathwise.backend.dto.SimulationRequest;
 import com.pathwise.backend.dto.SimulationResponse;
 import com.pathwise.backend.service.SimulationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -28,7 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(SimulationController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})
+@ActiveProfiles("test")
 class SimulationControllerTest {
 
     @Autowired

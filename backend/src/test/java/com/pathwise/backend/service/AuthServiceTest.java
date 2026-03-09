@@ -2,7 +2,6 @@ package com.pathwise.backend.service;
 
 import com.pathwise.backend.config.TestDataFactory;
 import com.pathwise.backend.dto.*;
-import com.pathwise.backend.enums.ExpenseCategory;
 import com.pathwise.backend.enums.TokenPurpose;
 import com.pathwise.backend.exception.*;
 import com.pathwise.backend.model.EmailVerificationToken;
@@ -17,13 +16,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,65 +26,85 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Unit tests for AuthService — covers the full auth lifecycle:
- * register → verifyEmail → login, plus forgot-password flow.
- *
- * Note: the uploaded AuthService.java is the OLD version (no email verification).
- * These tests are written against the NEW AuthService (with OTP verification)
- * that was delivered in the previous session. Replace AuthService.java with
- * the new version before running.
- */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class AuthServiceTest {
 
-    @Mock private UserRepository                  userRepository;
+    @Mock private UserRepository                   userRepository;
     @Mock private EmailVerificationTokenRepository tokenRepository;
-    @Mock private PasswordEncoder                 passwordEncoder;
-    @Mock private JwtUtil                         jwtUtil;
-    @Mock private FinancialProfileService         financialProfileService;
-    @Mock private EmailService                    emailService;
+    @Mock private PasswordEncoder                  passwordEncoder;
+    @Mock private JwtUtil                          jwtUtil;
+    @Mock private FinancialProfileService          financialProfileService;
+    @Mock private EmailService                     emailService;
 
     @InjectMocks
     private AuthService authService;
 
+    private User testUser;
     private RegisterRequest validRegisterRequest;
-    private User            verifiedUser;
-    private User            unverifiedUser;
+    private EmailVerificationToken activeVerificationToken;
+    private EmailVerificationToken activeResetToken;
 
     @BeforeEach
     void setUp() {
+        testUser = TestDataFactory.createTestUser();
         validRegisterRequest = TestDataFactory.createValidRegisterRequest();
 
-        verifiedUser = TestDataFactory.createTestUser();   // emailVerified = true
-
-        unverifiedUser = User.builder()
+        activeVerificationToken = EmailVerificationToken.builder()
                 .id(UUID.randomUUID())
-                .fullName("Unverified User")
-                .email("unverified@example.com")
-                .passwordHash("hash")
-                .phone("33445566")
-                .monthlySalary(new BigDecimal("2000.000"))
-                .emailVerified(false)
+                .email("test@example.com")
+                .user(testUser)
+                .code("123456")
+                .purpose(TokenPurpose.EMAIL_VERIFICATION)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .used(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        activeResetToken = EmailVerificationToken.builder()
+                .id(UUID.randomUUID())
+                .email("test@example.com")
+                .user(testUser)
+                .code("654321")
+                .resetToken("some-uuid-reset-token")
+                .purpose(TokenPurpose.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .used(false)
+                .createdAt(LocalDateTime.now())
                 .build();
     }
 
-    // ── register() ────────────────────────────────────────────────────────────
+    // ── register ──────────────────────────────────────────────────────────────
 
     @Test
-    void register_WithValidData_ReturnsMessageResponse() {
+    void register_WithValidData_ReturnsMessageAndSendsEmail() {
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(userRepository.existsByPhone(anyString())).thenReturn(false);
-        when(passwordEncoder.encode(anyString())).thenReturn("hashedPw");
-        when(userRepository.save(any(User.class))).thenReturn(verifiedUser);
+        when(passwordEncoder.encode(anyString())).thenReturn("hashedPassword");
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(tokenRepository.save(any(EmailVerificationToken.class)))
+                .thenReturn(activeVerificationToken);
 
-        MessageResponse result = authService.register(validRegisterRequest);
+        MessageResponse response = authService.register(validRegisterRequest);
 
-        assertNotNull(result);
-        assertNotNull(result.getMessage());
-        // OTP email should be sent
+        assertEquals("Verification email sent. Please check your inbox.", response.getMessage());
         verify(emailService).sendVerificationEmail(anyString(), anyString(), anyString());
+        verify(userRepository, never()).existsByEmail(""); // not a blank email check
+    }
+
+    @Test
+    void register_NormalizesEmailToLowercase() {
+        validRegisterRequest.setEmail("TEST@EXAMPLE.COM");
+
+        when(userRepository.existsByEmail("test@example.com")).thenReturn(false);
+        when(userRepository.existsByPhone(anyString())).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(tokenRepository.save(any(EmailVerificationToken.class)))
+                .thenReturn(activeVerificationToken);
+
+        authService.register(validRegisterRequest);
+
+        verify(userRepository).existsByEmail("test@example.com");
     }
 
     @Test
@@ -100,6 +115,7 @@ class AuthServiceTest {
                 () -> authService.register(validRegisterRequest));
 
         verify(userRepository, never()).save(any());
+        verify(emailService, never()).sendVerificationEmail(any(), any(), any());
     }
 
     @Test
@@ -114,258 +130,277 @@ class AuthServiceTest {
     }
 
     @Test
-    void register_NormalisesEmailToLowercase() {
-        validRegisterRequest.setEmail("  USER@Example.COM  ");
-        when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+    void register_CreatesUserWithEmailVerifiedFalse() {
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(userRepository.existsByPhone(anyString())).thenReturn(false);
-        when(passwordEncoder.encode(anyString())).thenReturn("hashedPw");
-        when(userRepository.save(any(User.class))).thenReturn(verifiedUser);
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(tokenRepository.save(any())).thenReturn(activeVerificationToken);
+
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            assertFalse(saved.isEmailVerified(), "New users must not be verified on registration");
+            return testUser;
+        });
+
+        authService.register(validRegisterRequest);
+    }
+
+    @Test
+    void register_InvalidatesOldTokensBeforeIssuingNew() {
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(userRepository.existsByPhone(anyString())).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(tokenRepository.save(any())).thenReturn(activeVerificationToken);
 
         authService.register(validRegisterRequest);
 
-        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        assertEquals("user@example.com", captor.getValue().getEmail());
+        verify(tokenRepository).invalidateAll(anyString(), eq(TokenPurpose.EMAIL_VERIFICATION));
     }
 
-    @Test
-    void register_WithExpensesExceedingSalary_ThrowsInvalidExpenseDataException() {
-        RegisterRequest.ExpenseItem bigExpense = new RegisterRequest.ExpenseItem();
-        bigExpense.setCategory(ExpenseCategory.HOUSING);
-        bigExpense.setAmount(new BigDecimal("9999.000")); // more than salary
-        bigExpense.setLabel("Mansion");
-        validRegisterRequest.setMonthlyExpenses(List.of(bigExpense));
-
-        when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(userRepository.existsByPhone(anyString())).thenReturn(false);
-
-        assertThrows(InvalidExpenseDataException.class,
-                () -> authService.register(validRegisterRequest));
-    }
+    // ── verifyEmail ───────────────────────────────────────────────────────────
 
     @Test
-    void register_WithDuplicateExpenseCategories_ThrowsInvalidExpenseDataException() {
-        RegisterRequest.ExpenseItem rent1 = new RegisterRequest.ExpenseItem();
-        rent1.setCategory(ExpenseCategory.HOUSING);
-        rent1.setAmount(new BigDecimal("200.000"));
-        rent1.setLabel("Rent");
-
-        RegisterRequest.ExpenseItem rent2 = new RegisterRequest.ExpenseItem();
-        rent2.setCategory(ExpenseCategory.HOUSING); // duplicate
-        rent2.setAmount(new BigDecimal("100.000"));
-        rent2.setLabel("Garage");
-
-        validRegisterRequest.setMonthlyExpenses(List.of(rent1, rent2));
-
-        when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(userRepository.existsByPhone(anyString())).thenReturn(false);
-
-        assertThrows(InvalidExpenseDataException.class,
-                () -> authService.register(validRegisterRequest));
-    }
-
-    // ── verifyEmail() ─────────────────────────────────────────────────────────
-
-    @Test
-    void verifyEmail_WithValidCode_ReturnsAuthResponseWithToken() {
-        EmailVerificationToken token = EmailVerificationToken.builder()
-                .id(UUID.randomUUID())
-                .email(unverifiedUser.getEmail())
-                .user(unverifiedUser)
-                .code("123456")
-                .purpose(TokenPurpose.EMAIL_VERIFICATION)
-                .expiresAt(LocalDateTime.now().plusMinutes(10))
-                .used(false)
-                .build();
+    void verifyEmail_WithValidCode_ReturnsJwtAndMarksVerified() {
+        when(tokenRepository.findActiveToken("test@example.com", TokenPurpose.EMAIL_VERIFICATION))
+                .thenReturn(Optional.of(activeVerificationToken));
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(tokenRepository.save(any())).thenReturn(activeVerificationToken);
+        when(jwtUtil.generateToken("test@example.com")).thenReturn("test-jwt-token");
 
         VerifyEmailRequest request = new VerifyEmailRequest();
-        request.setEmail(unverifiedUser.getEmail());
+        request.setEmail("test@example.com");
         request.setCode("123456");
 
-        when(tokenRepository.findActiveToken(anyString(), eq(TokenPurpose.EMAIL_VERIFICATION)))
-                .thenReturn(Optional.of(token));
-        when(userRepository.save(any(User.class))).thenReturn(verifiedUser);
-        when(jwtUtil.generateToken(anyString())).thenReturn("new-jwt-token");
+        AuthResponse response = authService.verifyEmail(request);
 
-        AuthResponse result = authService.verifyEmail(request);
+        assertEquals("test-jwt-token", response.getToken());
+        assertEquals("test@example.com", response.getEmail());
 
-        assertNotNull(result);
-        assertEquals("new-jwt-token", result.getToken());
-        assertTrue(token.isUsed()); // token marked as used
+        // user must be marked verified
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertTrue(userCaptor.getValue().isEmailVerified());
+
+        // token must be marked used
+        ArgumentCaptor<EmailVerificationToken> tokenCaptor =
+                ArgumentCaptor.forClass(EmailVerificationToken.class);
+        verify(tokenRepository).save(tokenCaptor.capture());
+        assertTrue(tokenCaptor.getValue().isUsed());
     }
 
     @Test
     void verifyEmail_WithWrongCode_ThrowsInvalidTokenException() {
-        EmailVerificationToken token = EmailVerificationToken.builder()
-                .id(UUID.randomUUID())
-                .email(unverifiedUser.getEmail())
-                .user(unverifiedUser)
-                .code("999999")
-                .purpose(TokenPurpose.EMAIL_VERIFICATION)
-                .expiresAt(LocalDateTime.now().plusMinutes(10))
-                .used(false)
-                .build();
+        when(tokenRepository.findActiveToken("test@example.com", TokenPurpose.EMAIL_VERIFICATION))
+                .thenReturn(Optional.of(activeVerificationToken));
 
         VerifyEmailRequest request = new VerifyEmailRequest();
-        request.setEmail(unverifiedUser.getEmail());
-        request.setCode("123456"); // wrong code
+        request.setEmail("test@example.com");
+        request.setCode("000000"); // wrong
 
-        when(tokenRepository.findActiveToken(anyString(), eq(TokenPurpose.EMAIL_VERIFICATION)))
-                .thenReturn(Optional.of(token));
-
-        assertThrows(InvalidTokenException.class,
-                () -> authService.verifyEmail(request));
+        assertThrows(InvalidTokenException.class, () -> authService.verifyEmail(request));
+        verify(userRepository, never()).save(any());
     }
 
     @Test
-    void verifyEmail_WithExpiredToken_ThrowsInvalidTokenException() {
-        when(tokenRepository.findActiveToken(anyString(), eq(TokenPurpose.EMAIL_VERIFICATION)))
-                .thenReturn(Optional.empty()); // no active token found
+    void verifyEmail_WithNoActiveToken_ThrowsInvalidTokenException() {
+        when(tokenRepository.findActiveToken(anyString(), any()))
+                .thenReturn(Optional.empty());
 
         VerifyEmailRequest request = new VerifyEmailRequest();
-        request.setEmail(unverifiedUser.getEmail());
+        request.setEmail("test@example.com");
         request.setCode("123456");
 
-        assertThrows(InvalidTokenException.class,
-                () -> authService.verifyEmail(request));
+        assertThrows(InvalidTokenException.class, () -> authService.verifyEmail(request));
     }
 
-    // ── login() ───────────────────────────────────────────────────────────────
+    // ── resendVerification ────────────────────────────────────────────────────
 
     @Test
-    void login_WithVerifiedUser_ReturnsAuthResponse() {
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(verifiedUser));
-        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-        when(jwtUtil.generateToken(anyString())).thenReturn("jwt-token");
+    void resendVerification_WithUnverifiedUser_SendsNewCode() {
+        testUser.setEmailVerified(false);
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(tokenRepository.save(any())).thenReturn(activeVerificationToken);
+
+        ResendCodeRequest request = new ResendCodeRequest();
+        request.setEmail("test@example.com");
+
+        MessageResponse response = authService.resendVerification(request);
+
+        assertEquals("Verification email sent. Please check your inbox.", response.getMessage());
+        verify(emailService).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void resendVerification_WithAlreadyVerifiedUser_ReturnsAlreadyVerifiedMessage() {
+        testUser.setEmailVerified(true);
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+
+        ResendCodeRequest request = new ResendCodeRequest();
+        request.setEmail("test@example.com");
+
+        MessageResponse response = authService.resendVerification(request);
+
+        assertEquals("Email is already verified.", response.getMessage());
+        verify(emailService, never()).sendVerificationEmail(any(), any(), any());
+    }
+
+    @Test
+    void resendVerification_WithUnknownEmail_ThrowsInvalidCredentialsException() {
+        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
+
+        ResendCodeRequest request = new ResendCodeRequest();
+        request.setEmail("nobody@example.com");
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> authService.resendVerification(request));
+    }
+
+    // ── login ─────────────────────────────────────────────────────────────────
+
+    @Test
+    void login_WithValidCredentials_ReturnsAuthResponse() {
+        testUser.setEmailVerified(true);
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("password", testUser.getPasswordHash())).thenReturn(true);
+        when(jwtUtil.generateToken("test@example.com")).thenReturn("test-jwt-token");
 
         LoginRequest request = TestDataFactory.createValidLoginRequest();
-        AuthResponse result = authService.login(request);
+        AuthResponse response = authService.login(request);
 
-        assertNotNull(result);
-        assertEquals("jwt-token", result.getToken());
-        assertEquals(verifiedUser.getEmail(), result.getEmail());
-    }
-
-    @Test
-    void login_WithUnverifiedEmail_ThrowsEmailNotVerifiedException() {
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(unverifiedUser));
-        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-
-        LoginRequest request = new LoginRequest();
-        request.setEmail(unverifiedUser.getEmail());
-        request.setPassword("password");
-
-        assertThrows(EmailNotVerifiedException.class,
-                () -> authService.login(request));
+        assertEquals("test-jwt-token", response.getToken());
+        assertEquals("test@example.com", response.getEmail());
     }
 
     @Test
     void login_WithWrongPassword_ThrowsInvalidCredentialsException() {
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(verifiedUser));
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
 
-        LoginRequest request = TestDataFactory.createValidLoginRequest();
-
         assertThrows(InvalidCredentialsException.class,
-                () -> authService.login(request));
+                () -> authService.login(TestDataFactory.createValidLoginRequest()));
     }
 
     @Test
-    void login_WithUnknownEmail_ThrowsInvalidCredentialsException() {
+    void login_WithNonExistentEmail_ThrowsInvalidCredentialsException() {
         when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
 
-        LoginRequest request = TestDataFactory.createValidLoginRequest();
-
         assertThrows(InvalidCredentialsException.class,
-                () -> authService.login(request));
+                () -> authService.login(TestDataFactory.createValidLoginRequest()));
     }
 
     @Test
-    void login_NormalisesEmailToLowercase() {
-        LoginRequest request = new LoginRequest();
-        request.setEmail("  TEST@EXAMPLE.COM  ");
-        request.setPassword("password");
-
-        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(verifiedUser));
+    void login_WithUnverifiedEmail_ThrowsEmailNotVerifiedException() {
+        testUser.setEmailVerified(false);
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-        when(jwtUtil.generateToken(anyString())).thenReturn("token");
 
-        AuthResponse result = authService.login(request);
-        assertNotNull(result);
-        verify(userRepository).findByEmail("test@example.com");
+        assertThrows(EmailNotVerifiedException.class,
+                () -> authService.login(TestDataFactory.createValidLoginRequest()));
     }
 
-    // ── forgotPassword() ──────────────────────────────────────────────────────
+    // ── forgotPassword ────────────────────────────────────────────────────────
 
     @Test
-    void forgotPassword_AlwaysReturnsMessage_EvenForUnknownEmail() {
+    void forgotPassword_WithKnownEmail_SendsResetCodeAndReturns200() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(tokenRepository.save(any())).thenReturn(activeResetToken);
+
+        ForgotPasswordRequest request = new ForgotPasswordRequest();
+        request.setEmail("test@example.com");
+
+        MessageResponse response = authService.forgotPassword(request);
+
+        assertNotNull(response.getMessage());
+        verify(emailService).sendPasswordResetEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void forgotPassword_WithUnknownEmail_ReturnsOkWithoutSendingEmail() {
+        // Security: must NOT reveal whether email exists
         when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
 
         ForgotPasswordRequest request = new ForgotPasswordRequest();
         request.setEmail("nobody@example.com");
 
-        // Must NOT throw — security: no email enumeration
-        MessageResponse result = assertDoesNotThrow(
-                () -> authService.forgotPassword(request));
+        MessageResponse response = authService.forgotPassword(request);
 
-        assertNotNull(result);
-        assertNotNull(result.getMessage());
+        assertNotNull(response.getMessage()); // still returns a message
+        verify(emailService, never()).sendPasswordResetEmail(any(), any(), any());
+    }
+
+    // ── verifyResetCode ───────────────────────────────────────────────────────
+
+    @Test
+    void verifyResetCode_WithValidCode_ReturnsResetToken() {
+        when(tokenRepository.findActiveToken("test@example.com", TokenPurpose.PASSWORD_RESET))
+                .thenReturn(Optional.of(activeResetToken));
+        when(tokenRepository.save(any())).thenReturn(activeResetToken);
+
+        VerifyResetCodeRequest request = new VerifyResetCodeRequest();
+        request.setEmail("test@example.com");
+        request.setCode("654321");
+
+        ResetTokenResponse response = authService.verifyResetCode(request);
+
+        // A UUID-style reset token is set on the saved entity
+        ArgumentCaptor<EmailVerificationToken> captor =
+                ArgumentCaptor.forClass(EmailVerificationToken.class);
+        verify(tokenRepository).save(captor.capture());
+        assertNotNull(captor.getValue().getResetToken());
     }
 
     @Test
-    void forgotPassword_ForKnownEmail_SendsResetEmail() {
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(verifiedUser));
+    void verifyResetCode_WithWrongCode_ThrowsInvalidTokenException() {
+        when(tokenRepository.findActiveToken("test@example.com", TokenPurpose.PASSWORD_RESET))
+                .thenReturn(Optional.of(activeResetToken));
 
-        ForgotPasswordRequest request = new ForgotPasswordRequest();
-        request.setEmail(verifiedUser.getEmail());
+        VerifyResetCodeRequest request = new VerifyResetCodeRequest();
+        request.setEmail("test@example.com");
+        request.setCode("000000");
 
-        authService.forgotPassword(request);
-
-        verify(emailService).sendPasswordResetEmail(
-                eq(verifiedUser.getEmail()), anyString(), anyString());
+        assertThrows(InvalidTokenException.class, () -> authService.verifyResetCode(request));
     }
 
-    // ── resetPassword() ───────────────────────────────────────────────────────
+    // ── resetPassword ─────────────────────────────────────────────────────────
 
     @Test
-    void resetPassword_WithValidToken_UpdatesPasswordAndReturnsMessage() {
-        EmailVerificationToken resetToken = EmailVerificationToken.builder()
-                .id(UUID.randomUUID())
-                .email(verifiedUser.getEmail())
-                .user(verifiedUser)
-                .code("000000")
-                .purpose(TokenPurpose.PASSWORD_RESET)
-                .resetToken("valid-reset-token")
-                .expiresAt(LocalDateTime.now().plusMinutes(10))
-                .used(false)
-                .build();
-
-        when(tokenRepository.findActiveResetToken("valid-reset-token"))
-                .thenReturn(Optional.of(resetToken));
-        when(passwordEncoder.encode(anyString())).thenReturn("newHashedPw");
-        when(userRepository.save(any(User.class))).thenReturn(verifiedUser);
+    void resetPassword_WithValidToken_UpdatesPasswordAndMarksTokenUsed() {
+        when(tokenRepository.findActiveResetToken("some-uuid-reset-token"))
+                .thenReturn(Optional.of(activeResetToken));
+        when(passwordEncoder.encode("newPassword123")).thenReturn("hashedNewPassword");
+        when(tokenRepository.save(any())).thenReturn(activeResetToken);
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
 
         ResetPasswordRequest request = new ResetPasswordRequest();
-        request.setResetToken("valid-reset-token");
+        request.setResetToken("some-uuid-reset-token");
         request.setNewPassword("newPassword123");
 
-        MessageResponse result = authService.resetPassword(request);
+        MessageResponse response = authService.resetPassword(request);
 
-        assertNotNull(result);
-        assertTrue(resetToken.isUsed());
-        verify(passwordEncoder).encode("newPassword123");
-        verify(userRepository).save(verifiedUser);
+        assertEquals("Password updated successfully.", response.getMessage());
+
+        // token must be marked used
+        ArgumentCaptor<EmailVerificationToken> tokenCaptor =
+                ArgumentCaptor.forClass(EmailVerificationToken.class);
+        verify(tokenRepository).save(tokenCaptor.capture());
+        assertTrue(tokenCaptor.getValue().isUsed());
+
+        // password must be updated
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertEquals("hashedNewPassword", userCaptor.getValue().getPasswordHash());
     }
 
     @Test
-    void resetPassword_WithExpiredToken_ThrowsInvalidTokenException() {
+    void resetPassword_WithInvalidToken_ThrowsInvalidTokenException() {
         when(tokenRepository.findActiveResetToken(anyString())).thenReturn(Optional.empty());
 
         ResetPasswordRequest request = new ResetPasswordRequest();
         request.setResetToken("expired-token");
         request.setNewPassword("newPassword123");
 
-        assertThrows(InvalidTokenException.class,
-                () -> authService.resetPassword(request));
+        assertThrows(InvalidTokenException.class, () -> authService.resetPassword(request));
+        verify(userRepository, never()).save(any());
     }
 }

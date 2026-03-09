@@ -1,5 +1,3 @@
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
-
 /* ═══════════════════════════════════════════════════════════════════════════
    AUTH SERVICE — API CONTRACT REFERENCE
    ═══════════════════════════════════════════════════════════════════════════
@@ -39,7 +37,7 @@ const API_BASE = import.meta.env.VITE_BACKEND_URL;
 export const authService = {
 
   async register({ fullName, email, password, monthlySalary, phone, monthlyExpenses }) {
-    const res = await fetch(`${API_BASE}/api/auth/register`, {
+    const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fullName, email, password, monthlySalary: monthlySalary || 0, phone: phone || "", preferredCurrency: "BHD", monthlyExpenses: monthlyExpenses || [] }),
@@ -50,7 +48,7 @@ export const authService = {
   },
 
   async verifyEmail({ email, code }) {
-    const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
+    const res = await fetch("/api/auth/verify-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, code }),
@@ -61,7 +59,7 @@ export const authService = {
   },
 
   async resendVerification({ email }) {
-    const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {
+    const res = await fetch("/api/auth/resend-verification", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -72,7 +70,7 @@ export const authService = {
   },
 
   async login({ email, password }) {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
+    const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
@@ -90,7 +88,7 @@ export const authService = {
   },
 
   async forgotPassword({ email }) {
-    const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+    const res = await fetch("/api/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -101,7 +99,7 @@ export const authService = {
   },
 
   async verifyResetCode({ email, code }) {
-    const res = await fetch(`${API_BASE}/api/auth/verify-reset-code`, {
+    const res = await fetch("/api/auth/verify-reset-code", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, code }),
@@ -112,7 +110,7 @@ export const authService = {
   },
 
   async resetPassword({ resetToken, newPassword }) {
-    const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+    const res = await fetch("/api/auth/reset-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resetToken, newPassword }),
@@ -125,12 +123,12 @@ export const authService = {
 
 export const profileService = {
   getProfile: async (token) => {
-    const res = await fetch(`${API_BASE}/api/profile`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error("Failed to fetch profile");
     return res.json();
   },
   updateProfile: async (token, data) => {
-    const res = await fetch(`${API_BASE}/api/profile`, {
+    const res = await fetch("/api/profile", {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(data),
@@ -144,12 +142,12 @@ export const profileService = {
 export const expenseService = {
   getAll: async (token) => {
     try {
-      const res = await fetch(`${API_BASE}/api/expenses`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/expenses", { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) return res.json();
       if (res.status !== 404) { const d = await res.json().catch(() => ({})); throw new Error(d.message || `Failed to fetch expenses (${res.status})`); }
     } catch (err) { if (!err.message?.includes("404") && !err.message?.includes("fetch")) throw err; }
     try {
-      const res = await fetch(`${API_BASE}/api/profile`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/profile", { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return [];
       const profile = await res.json();
       return profile.monthlyExpenses || profile.expenses || [];

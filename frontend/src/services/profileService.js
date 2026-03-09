@@ -1,9 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// services/profileService.js
-// ─────────────────────────────────────────────────────────────────────────────
-
-const BASE = import.meta.env.VITE_BACKEND_URL;
-
 const authHeaders = (token) => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${token}`,
@@ -20,7 +14,7 @@ export const profileService = {
    * Get the authenticated user's profile with linked card and financial snapshot
    */
   getProfile: async (token) => {
-    const res = await fetch(`${BASE}/api/profile`, {
+    const res = await fetch("/api/profile", {
       headers: authHeaders(token),
     });
     return handleResponse(res);
@@ -30,21 +24,21 @@ export const profileService = {
    * Update the authenticated user's full name.
    * Returns the updated user object from the backend.
    */
-  updateName: async (token, fullName) => {
-    const res = await fetch(`${BASE}/api/profile`, {
-      method: "PUT",
-      headers: authHeaders(token),
-      body: JSON.stringify({ fullName }),
-    });
-    return handleResponse(res);
-  },
+    updateName: async (token, fullName) => {
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify({ fullName }),
+      });
+      return handleResponse(res);
+    },
 
   /**
    * Fetch the authenticated user's monthly expense categories.
    * Returns [{ id, category, label, amount }]
    */
   getExpenses: async (token) => {
-    const res = await fetch(`${BASE}/api/expenses`, {
+    const res = await fetch("/api/expenses", {
       headers: authHeaders(token),
     });
     const data = await handleResponse(res);
@@ -56,7 +50,7 @@ export const profileService = {
    * @param {Array<{ category: string, label: string|null, amount: number }>} expenses
    */
   updateExpenses: async (token, expenses) => {
-    const res = await fetch(`${BASE}/api/expenses`, {
+    const res = await fetch("/api/expenses", {
       method: "PUT",
       headers: authHeaders(token),
       body: JSON.stringify(expenses),
@@ -71,7 +65,7 @@ export const profileService = {
    * Update the authenticated user's profile fields
    */
   updateProfile: async (token, profileData) => {
-    const res = await fetch(`${BASE}/api/profile`, {
+    const res = await fetch("/api/profile", {
       method: "PUT",
       headers: authHeaders(token),
       body: JSON.stringify(profileData),

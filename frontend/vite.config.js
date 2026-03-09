@@ -10,4 +10,12 @@ export default defineConfig({
   optimizeDeps: {
     extensions: ['.jsx'],
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
 })

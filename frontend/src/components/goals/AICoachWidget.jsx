@@ -5,8 +5,8 @@ import { useWizard }     from "../../hooks/useWizard.js";
 import { WIZARD_STEPS, GOAL_CATEGORIES, WIZARD_QUICK_PROMPTS } from "../../constants/goals.js";
 import { formatBD }      from "../../utils/formatters.js";
 import { calcMonthlyNeeded } from "../../utils/goalCalculations.js";
+import { aiCoachService } from "../../services/aiCoachService.js";
 
-const API_BASE    = import.meta.env.VITE_BACKEND_URL;
 const STORAGE_KEY = "pathwise_ai_chat_v2";
 
 // ── Session storage ───────────────────────────────────────────────────────────
@@ -197,13 +197,7 @@ const WELCOME = {
 
   // ── Context event ─────────────────────────────────────────────────────────
   const notifyContextEvent = useCallback(async (actionType, goalName) => {
-    try {
-      await fetch(`${API_BASE}/api/ai-coach/context-event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ actionType, goalName }),
-      });
-    } catch { /* non-fatal */ }
+    await aiCoachService.notifyGoalAction(token, actionType, goalName);
   }, [token]);
 
   // ── Execute action ─────────────────────────────────────────────────────────
@@ -303,13 +297,7 @@ const WELCOME = {
   const sendToAI = useCallback(async (text) => {
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/api/ai-coach/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: text }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || `Error ${res.status}`);
+      const data   = await aiCoachService.chat(token, text);
       const raw    = data.message || "I'm not sure how to respond. Try rephrasing?";
       const action = parseActionFromReply(raw);
       const clean  = stripActionBlock(raw);
