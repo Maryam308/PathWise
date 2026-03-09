@@ -26,7 +26,7 @@ import DashboardPage         from "./pages/DashboardPage.jsx";
 import InsightsPage          from "./pages/InsightsPage.jsx";
 import GoalsPage             from "./pages/GoalsPage.jsx";
 import ProfilePage           from "./pages/ProfilePage.jsx";
-import ForgotPassword        from "./pages/ForgotPassword.jsx";
+import ForgotPassword        from "./pages/Forgotpassword.jsx";
 
 function App() {
   return (

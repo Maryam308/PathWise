@@ -1,3 +1,4 @@
+# application-dev.yaml
 spring:
   datasource:
     url: jdbc:h2:mem:pathwise;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
@@ -14,10 +15,37 @@ spring:
   h2:
     console:
       enabled: true
-  autoconfigure:
-    exclude: org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${EMAIL_USERNAME:dev@pathwise.app}
+    password: ${EMAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
-# Swagger/OpenAPI Configuration
+# Remove the Security exclusion — it breaks the filter chain and JWT auth
+# autoconfigure:
+#   exclude: org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+
+jwt:
+  secret: ${JWT_SECRET:ZGV2LXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LW9ubHk=}
+  expiration: 86400000
+
+groq:
+  api-key: ${GROQ_API_KEY:dev-placeholder}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+plaid:
+  client-id: ${PLAID_CLIENT_ID:dev}
+  secret: ${PLAID_SECRET:dev}
+  env: ${PLAID_ENV:sandbox}
+
 springdoc:
   api-docs:
     enabled: true
@@ -25,9 +53,7 @@ springdoc:
   swagger-ui:
     enabled: true
     path: /swagger-ui.html
-    display-request-duration: true
     try-it-out-enabled: true
-    persist-authorization: true
 
 logging:
   level:

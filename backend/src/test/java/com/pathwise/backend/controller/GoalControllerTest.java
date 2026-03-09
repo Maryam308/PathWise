@@ -1,5 +1,5 @@
 package com.pathwise.backend.controller;
-
+import com.pathwise.backend.config.TestJwtConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pathwise.backend.config.TestDataFactory;
 import com.pathwise.backend.config.TestSecurityConfig;
@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,7 +31,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(GoalController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})
+@ActiveProfiles("test")
 class GoalControllerTest {
 
     @Autowired

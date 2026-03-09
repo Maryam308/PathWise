@@ -58,6 +58,20 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Invalid Expense Data", ex.getMessage(), req, null);
     }
 
+    // ── 400 — Invalid or expired OTP / resetToken ────────────────────────────
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidToken(
+            InvalidTokenException ex, HttpServletRequest req) {
+        return build(HttpStatus.BAD_REQUEST, "Invalid Token", ex.getMessage(), req, null);
+    }
+
+    // ── 400 — General bad argument ────────────────────────────────────────────
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+            IllegalArgumentException ex, HttpServletRequest req) {
+        return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), req, null);
+    }
+
     // ── 401 — Wrong email or password ────────────────────────────────────────
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCredentials(
@@ -65,11 +79,28 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage(), req, null);
     }
 
+    // ── 403 — Email not verified (special error code for frontend redirect) ───
+    @ExceptionHandler(EmailNotVerifiedException.class)
+    public ResponseEntity<ErrorResponse> handleEmailNotVerified(
+            EmailNotVerifiedException ex, HttpServletRequest req) {
+        // The "error" field is set to EMAIL_NOT_VERIFIED so the frontend
+        // can distinguish this 403 from a generic access-denied and redirect
+        // the user back to the email verification step.
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.FORBIDDEN.value())
+                        .error("EMAIL_NOT_VERIFIED")
+                        .message(ex.getMessage())
+                        .path(req.getRequestURI())
+                        .fields(null)
+                        .build());
+    }
+
     // ── 403 — Authenticated but accessing another user's resource ────────────
     @ExceptionHandler({UnauthorizedAccessException.class, AccessDeniedException.class})
     public ResponseEntity<ErrorResponse> handleForbidden(
             RuntimeException ex, HttpServletRequest req) {
-        // Never expose the internal reason — just "forbidden"
         return build(HttpStatus.FORBIDDEN, "Forbidden",
                 "You do not have permission to access this resource.", req, null);
     }
@@ -89,7 +120,6 @@ public class GlobalExceptionHandler {
     }
 
     // ── 422 — Savings target would exceed disposable income ──────────────────
-    // 422 Unprocessable Entity: request is valid JSON but violates a business rule.
     @ExceptionHandler(SavingsLimitExceededException.class)
     public ResponseEntity<ErrorResponse> handleSavingsLimit(
             SavingsLimitExceededException ex, HttpServletRequest req) {
@@ -105,7 +135,7 @@ public class GlobalExceptionHandler {
                 ex.getMessage(), req, null);
     }
 
-    // ── 500 — Catch-all: log full trace, never expose internals ──────────────
+    // ── 500 — Catch-all ───────────────────────────────────────────────────────
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(
             Exception ex, HttpServletRequest req) {

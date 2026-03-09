@@ -18,15 +18,22 @@ import java.util.UUID;
 @Component
 public class TestDataFactory {
 
+    // ── Phone number note ─────────────────────────────────────────────────────
+    // RegisterRequest and User both enforce @Pattern("^[0-9]{8}$") — exactly
+    // 8 digits with NO country code prefix. Never use "+97312345678" here.
+    private static final String TEST_PHONE       = "33445566";
+    private static final String OTHER_TEST_PHONE = "87654321";
+
     public static User createTestUser() {
         return User.builder()
                 .id(UUID.randomUUID())
                 .fullName("Test User")
                 .email("test@example.com")
                 .passwordHash("hashedPassword")
-                .phone("+97312345678")
+                .phone(TEST_PHONE)
                 .monthlySalary(new BigDecimal("2000.000"))
                 .preferredCurrency("BHD")
+                .emailVerified(true)   // already verified in unit tests
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -38,9 +45,10 @@ public class TestDataFactory {
                 .fullName("Other User")
                 .email("other@example.com")
                 .passwordHash("hashedPassword")
-                .phone("+97387654321")
+                .phone(OTHER_TEST_PHONE)
                 .monthlySalary(new BigDecimal("3000.000"))
                 .preferredCurrency("BHD")
+                .emailVerified(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -95,7 +103,7 @@ public class TestDataFactory {
         request.setFullName("New User");
         request.setEmail("new@example.com");
         request.setPassword("password123");
-        request.setPhone("+97312345678");
+        request.setPhone(TEST_PHONE);  // 8 digits, no country code
         request.setMonthlySalary(new BigDecimal("2000.000"));
         return request;
     }
@@ -139,14 +147,12 @@ public class TestDataFactory {
                 .build();
     }
 
-    // ChatRequest has only: message (no conversationId field)
     public static ChatRequest createValidChatRequest() {
         ChatRequest request = new ChatRequest();
         request.setMessage("How can I save more money?");
         return request;
     }
 
-    // ChatResponse has: message, role, timestamp (no conversationId field)
     public static ChatResponse createChatResponse() {
         return ChatResponse.builder()
                 .message("Here are some tips to save money...")
@@ -155,7 +161,6 @@ public class TestDataFactory {
                 .build();
     }
 
-    // SimulationRequest uses currentMonthlySavingsTarget + spendingAdjustments
     public static SimulationRequest createValidSimulationRequest(UUID goalId) {
         SimulationRequest request = new SimulationRequest();
         request.setGoalId(goalId);
@@ -167,7 +172,6 @@ public class TestDataFactory {
         return request;
     }
 
-    // SimulationResponse uses goalId, goalName, simulatedMonthlySavingsTarget, etc.
     public static SimulationResponse createSimulationResponse(UUID goalId) {
         return SimulationResponse.builder()
                 .goalId(goalId)

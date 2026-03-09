@@ -7,6 +7,7 @@ import com.pathwise.backend.dto.ChatRequest;
 import com.pathwise.backend.dto.ChatResponse;
 import com.pathwise.backend.exception.MessageTooLongException;
 import com.pathwise.backend.service.AICoachService;
+import com.pathwise.backend.config.TestJwtConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +18,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-
+import org.springframework.test.context.ActiveProfiles;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -25,8 +26,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AICoachController.class)
-@Import({TestSecurityConfig.class, TestDataFactory.class})
-@TestPropertySource(properties = {"groq.api.key=test-key"})
+@Import({TestSecurityConfig.class, TestDataFactory.class, TestJwtConfig.class})  // ADD TestJwtConfig
+@ActiveProfiles("test")
 class AICoachControllerTest {
 
     @Autowired

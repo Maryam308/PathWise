@@ -1,62 +1,80 @@
 package com.pathwise.backend.service;
 
-import com.pathwise.backend.dto.AuthResponse;
-import com.pathwise.backend.dto.LoginRequest;
-import com.pathwise.backend.dto.RegisterRequest;
-import com.pathwise.backend.exception.EmailAlreadyExistsException;
-import com.pathwise.backend.exception.InvalidCredentialsException;
-import com.pathwise.backend.model.User;
+import com.pathwise.backend.dto.*;
 import com.pathwise.backend.enums.ExpenseCategory;
-import org.springframework.dao.DataIntegrityViolationException;
+import com.pathwise.backend.enums.TokenPurpose;
+import com.pathwise.backend.exception.EmailAlreadyExistsException;
+import com.pathwise.backend.exception.EmailNotVerifiedException;
+import com.pathwise.backend.exception.InvalidCredentialsException;
+import com.pathwise.backend.exception.InvalidTokenException;
 import com.pathwise.backend.exception.InvalidExpenseDataException;
+import com.pathwise.backend.model.EmailVerificationToken;
+import com.pathwise.backend.model.User;
+import com.pathwise.backend.repository.EmailVerificationTokenRepository;
 import com.pathwise.backend.repository.UserRepository;
 import com.pathwise.backend.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
-
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtUtil jwtUtil;
-    private final FinancialProfileService financialProfileService;
+    private final UserRepository                  userRepository;
+    private final EmailVerificationTokenRepository tokenRepository;
+    private final PasswordEncoder                  passwordEncoder;
+    private final JwtUtil                          jwtUtil;
+    private final FinancialProfileService          financialProfileService;
+    private final EmailService                     emailService;
 
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Generates a cryptographically secure 6-digit OTP string, zero-padded. */
+    private String generateOtp() {
+        return String.format("%06d", RANDOM.nextInt(1_000_000));
+    }
+
+    // ── Registration ──────────────────────────────────────────────────────────
+
+    /**
+     * Creates the user account and sends an email verification code.
+     * The user CANNOT log in until they verify their email.
+     *
+     * @return a simple message — no JWT is issued here.
+     */
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public MessageResponse register(RegisterRequest request) {
 
-        // Normalise email to lowercase to prevent duplicate accounts
-        // differing only by case (e.g. User@example.com vs user@example.com)
         String email = request.getEmail().trim().toLowerCase();
 
+        // Prevent duplicate accounts — use a generic message to avoid email enumeration
         if (userRepository.existsByEmail(email)) {
-            throw new EmailAlreadyExistsException(
-                    "Invalid email or password");
+            throw new EmailAlreadyExistsException("Invalid email or password");
         }
 
-
-        // Validate phone number format (8 digits)
         if (request.getPhone() == null || !request.getPhone().matches("^[0-9]{8}$")) {
             throw new IllegalArgumentException("Phone number must be exactly 8 digits");
         }
 
-        // Check if phone number already exists
         if (userRepository.existsByPhone(request.getPhone())) {
             throw new IllegalArgumentException("This phone number is already registered with another account.");
         }
 
-        // Validate total expenses don't exceed salary
+        // Validate total expenses ≤ salary
         if (request.getMonthlyExpenses() != null && !request.getMonthlyExpenses().isEmpty()) {
             BigDecimal totalExpenses = request.getMonthlyExpenses()
                     .stream()
@@ -71,28 +89,27 @@ public class AuthService {
             }
         }
 
-        // Validate no duplicate categories
+        // Validate no duplicate expense categories
         if (request.getMonthlyExpenses() != null && !request.getMonthlyExpenses().isEmpty()) {
             List<ExpenseCategory> categories = request.getMonthlyExpenses()
                     .stream()
                     .map(RegisterRequest.ExpenseItem::getCategory)
                     .collect(Collectors.toList());
-
-            Set<ExpenseCategory> uniqueCategories = new HashSet<>(categories);
-            if (uniqueCategories.size() != categories.size()) {
+            Set<ExpenseCategory> unique = new HashSet<>(categories);
+            if (unique.size() != categories.size()) {
                 throw new InvalidExpenseDataException("Duplicate expense categories are not allowed");
             }
         }
-
 
         User user = User.builder()
                 .fullName(request.getFullName().trim())
                 .email(email)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .phone(request.getPhone())                           // optional, may be null
+                .phone(request.getPhone())
                 .preferredCurrency(request.getPreferredCurrency() != null
                         ? request.getPreferredCurrency() : "BHD")
-                .monthlySalary(request.getMonthlySalary())           // @NotNull enforced by Bean Validation
+                .monthlySalary(request.getMonthlySalary())
+                .emailVerified(false)           // must verify before first login
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -100,18 +117,91 @@ public class AuthService {
         try {
             user = userRepository.save(user);
         } catch (DataIntegrityViolationException e) {
-            // This catches any database constraint violation
-            if (e.getMessage().contains("phone")) {
+            if (e.getMessage() != null && e.getMessage().contains("phone")) {
                 throw new IllegalArgumentException("This phone number is already registered with another account.");
             }
             throw e;
         }
 
-        // Save monthly expenses in the same @Transactional scope.
-        // If monthlyExpenses is null or empty → nothing saved → expenses = BD 0.
-        // Rolls back together with the user save if anything fails.
         if (request.getMonthlyExpenses() != null && !request.getMonthlyExpenses().isEmpty()) {
             financialProfileService.saveExpenses(user.getId(), request.getMonthlyExpenses());
+        }
+
+        // Issue OTP and send verification email
+        sendVerificationCode(user, email);
+
+        return new MessageResponse("Verification email sent. Please check your inbox.");
+    }
+
+    // ── Email verification ─────────────────────────────────────────────────────
+
+    /**
+     * Validates the 6-digit OTP, marks the user as verified, and returns a JWT.
+     */
+    @Transactional
+    public AuthResponse verifyEmail(VerifyEmailRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        EmailVerificationToken token = tokenRepository
+                .findActiveToken(email, TokenPurpose.EMAIL_VERIFICATION)
+                .orElseThrow(() -> new InvalidTokenException("Invalid or expired verification code."));
+
+        if (!token.getCode().equals(request.getCode())) {
+            throw new InvalidTokenException("Invalid or expired verification code.");
+        }
+
+        // Mark token used
+        token.setUsed(true);
+        tokenRepository.save(token);
+
+        // Mark user verified
+        User user = token.getUser();
+        user.setEmailVerified(true);
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        return AuthResponse.builder()
+                .token(jwtUtil.generateToken(user.getEmail()))
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .userId(user.getId())
+                .phone(user.getPhone())
+                .build();
+    }
+
+    /**
+     * Resends a verification code, invalidating any previous active codes first.
+     */
+    @Transactional
+    public MessageResponse resendVerification(ResendCodeRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
+
+        if (user.isEmailVerified()) {
+            return new MessageResponse("Email is already verified.");
+        }
+
+        sendVerificationCode(user, email);
+        return new MessageResponse("Verification email sent. Please check your inbox.");
+    }
+
+    // ── Login ─────────────────────────────────────────────────────────────────
+
+    public AuthResponse login(LoginRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            throw new InvalidCredentialsException("Invalid email or password.");
+        }
+
+        // Block login until email is verified
+        if (!user.isEmailVerified()) {
+            throw new EmailNotVerifiedException("Please verify your email address before logging in.");
         }
 
         return AuthResponse.builder()
@@ -123,23 +213,106 @@ public class AuthService {
                 .build();
     }
 
-    public AuthResponse login(LoginRequest request) {
+    // ── Password reset ─────────────────────────────────────────────────────────
+
+    /**
+     * Step 1: sends a reset code to the email.
+     * Always returns 200 — never reveals whether the email exists.
+     */
+    @Transactional
+    public MessageResponse forgotPassword(ForgotPasswordRequest request) {
         String email = request.getEmail().trim().toLowerCase();
 
-        // Same generic error for wrong email AND wrong password intentionally —
-        // prevents user enumeration attacks.
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
+        // Look up silently — don't leak whether the email exists
+        userRepository.findByEmail(email).ifPresent(user ->
+                sendPasswordResetCode(user, email)
+        );
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new InvalidCredentialsException("Invalid email or password.");
+        return new MessageResponse("If that email is registered, a reset code has been sent.");
+    }
+
+    /**
+     * Step 2: validates the OTP and exchanges it for a short-lived resetToken UUID.
+     */
+    @Transactional
+    public ResetTokenResponse verifyResetCode(VerifyResetCodeRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        EmailVerificationToken token = tokenRepository
+                .findActiveToken(email, TokenPurpose.PASSWORD_RESET)
+                .orElseThrow(() -> new InvalidTokenException("Invalid or expired reset code."));
+
+        if (!token.getCode().equals(request.getCode())) {
+            throw new InvalidTokenException("Invalid or expired reset code.");
         }
 
-        return AuthResponse.builder()
-                .token(jwtUtil.generateToken(user.getEmail()))
-                .email(user.getEmail())
-                .fullName(user.getFullName())
-                .userId(user.getId())
+        // Generate a one-use reset token (10 minute TTL from now)
+        String resetToken = UUID.randomUUID().toString();
+        token.setResetToken(resetToken);
+        token.setExpiresAt(LocalDateTime.now().plusMinutes(10));  // shorten window after OTP verified
+        tokenRepository.save(token);
+
+        return new ResetTokenResponse(resetToken);
+    }
+
+    /**
+     * Step 3: validates the resetToken and sets the new password.
+     */
+    @Transactional
+    public MessageResponse resetPassword(ResetPasswordRequest request) {
+        EmailVerificationToken token = tokenRepository
+                .findActiveResetToken(request.getResetToken())
+                .orElseThrow(() -> new InvalidTokenException("Invalid or expired reset token. Please start over."));
+
+        // Mark used immediately (single-use)
+        token.setUsed(true);
+        tokenRepository.save(token);
+
+        User user = token.getUser();
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        return new MessageResponse("Password updated successfully.");
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private void sendVerificationCode(User user, String email) {
+        // Invalidate any previous unused codes for this email + purpose
+        tokenRepository.invalidateAll(email, TokenPurpose.EMAIL_VERIFICATION);
+
+        String code = generateOtp();
+        EmailVerificationToken token = EmailVerificationToken.builder()
+                .email(email)
+                .user(user)
+                .code(code)
+                .purpose(TokenPurpose.EMAIL_VERIFICATION)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .used(false)
+                .createdAt(LocalDateTime.now())
                 .build();
+        tokenRepository.save(token);
+
+        // Send asynchronously — does not block the HTTP response
+        emailService.sendVerificationEmail(email, user.getFullName(), code);
+    }
+
+    private void sendPasswordResetCode(User user, String email) {
+        tokenRepository.invalidateAll(email, TokenPurpose.PASSWORD_RESET);
+
+        String code = generateOtp();
+        EmailVerificationToken token = EmailVerificationToken.builder()
+                .email(email)
+                .user(user)
+                .code(code)
+                .purpose(TokenPurpose.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .used(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+        tokenRepository.save(token);
+
+        emailService.sendPasswordResetEmail(email, user.getFullName(), code);
     }
 }

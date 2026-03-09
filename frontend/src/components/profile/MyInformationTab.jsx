@@ -25,7 +25,7 @@ const ReadOnlyField = ({ label, value, iconPath }) => (
 
 // ── Main tab ─────────────────────────────────────────────────────────────────
 const MyInformationTab = () => {
-  const { user, token, setUser } = useAuth();
+    const { user, token, updateUser } = useAuth();
 
   const [editingName, setEditingName] = useState(false);
   const [nameValue,   setNameValue]   = useState(user?.fullName || "");
@@ -45,7 +45,7 @@ const MyInformationTab = () => {
     setEditingName(false);
   };
 
-  const handleSaveName = async () => {
+const handleSaveName = async () => {
     const trimmed = nameValue.trim();
     if (!trimmed) { setNameError("Name cannot be empty."); return; }
     if (trimmed === user?.fullName) { setEditingName(false); return; }
@@ -54,10 +54,14 @@ const MyInformationTab = () => {
     setNameError(null);
     try {
       const updated = await profileService.updateName(token, trimmed);
-      // Sync back into AuthContext so the Navbar avatar/greeting updates too
-      if (typeof setUser === "function") {
-        setUser((prev) => ({ ...prev, fullName: updated.fullName ?? trimmed }));
-      }
+      console.log("Server response:", updated);
+
+      // Use updateUser instead of setUser
+      updateUser({
+        ...user,
+        fullName: trimmed  // or updated.fullName if that's what server returns
+      });
+
       setEditingName(false);
       setNameSuccess(true);
       setTimeout(() => setNameSuccess(false), 3000);
