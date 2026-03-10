@@ -19,6 +19,14 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Service responsible for detecting and managing spending anomalies.
+ * Compares current month spending against historical averages to identify
+ * unusual spending patterns and alert users.
+ * 
+ * @author PathWise Team
+ * @version 1.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,6 +42,11 @@ public class AnomalyService {
     private static final double MEDIUM_THRESHOLD = 2.0;
     private static final double LOW_THRESHOLD = 1.5;
 
+    /**
+     * Detects anomalies for the current user and returns active ones.
+     * 
+     * @return List of active anomaly responses
+     */
     public List<AnomalyResponse> detectAndGetAnomalies() {
         User user = getCurrentUser();
         detectAnomalies(user);
@@ -44,6 +57,12 @@ public class AnomalyService {
                 .toList();
     }
 
+    /**
+     * Dismisses an anomaly by ID, verifying ownership.
+     * 
+     * @param anomalyId ID of the anomaly to dismiss
+     * @throws IllegalArgumentException if anomaly not found or doesn't belong to user
+     */
     public void dismissAnomaly(UUID anomalyId) {
         User user = getCurrentUser();
         Anomaly anomaly = anomalyRepository.findById(anomalyId)
@@ -55,6 +74,13 @@ public class AnomalyService {
         anomalyRepository.save(anomaly);
     }
 
+    /**
+     * Core anomaly detection logic.
+     * Compares current month spending by category against 3-month historical average.
+     * Creates anomalies when spending exceeds defined thresholds.
+     * 
+     * @param user User to analyze
+     */
     private void detectAnomalies(User user) {
         LocalDate now = LocalDate.now();
         LocalDate thisMonthStart = now.withDayOfMonth(1);
@@ -136,6 +162,12 @@ public class AnomalyService {
         });
     }
 
+    /**
+     * Maps Anomaly entity to AnomalyResponse DTO.
+     * 
+     * @param a Anomaly entity
+     * @return AnomalyResponse DTO
+     */
     private AnomalyResponse toResponse(Anomaly a) {
         return AnomalyResponse.builder()
                 .id(a.getId())
@@ -149,6 +181,12 @@ public class AnomalyService {
                 .build();
     }
 
+    /**
+     * Retrieves the current authenticated user.
+     * 
+     * @return User entity
+     * @throws UserNotFoundException if user not found
+     */
     private User getCurrentUser() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();

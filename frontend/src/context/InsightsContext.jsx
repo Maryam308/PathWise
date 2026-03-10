@@ -1,3 +1,15 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// context/InsightsContext.jsx
+// Provides shared state for analytics, transactions, anomalies, reports, and accounts
+// across dashboard, insights, and profile pages.
+// 
+// Features:
+// - Fetches all financial data on initial load
+// - Smart sync when user returns to tab after 5+ minutes
+// - Handles card linking and anomaly dismissal
+// - Paginated transaction management
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useAuth } from "./AuthContext.jsx";
 import { insightsService } from "../services/insightsService.js";
@@ -5,6 +17,14 @@ import { TRANSACTIONS_PER_PAGE } from "../constants/insights.js";
 
 const InsightsContext = createContext(null);
 
+/**
+ * Provider component that manages all insights-related state including:
+ * - Analytics data (balance, income, expenses)
+ * - Transactions with pagination
+ * - Anomalies
+ * - Reports
+ * - Linked accounts/cards
+ */
 export const InsightsProvider = ({ children }) => {
   const { token } = useAuth();
 
@@ -37,6 +57,10 @@ export const InsightsProvider = ({ children }) => {
   const [accountsLoading, setAccountsLoading] = useState(true);
 
   // ── fetchAnalytics ─────────────────────────────────────────────────────────
+  /**
+   * Fetches analytics data for the specified number of months.
+   * @param {number} months - Number of months to analyze (default: 1)
+   */
   const fetchAnalytics = useCallback(async (months = 1) => {
     if (!token) return;
     setAnalyticsLoading(true);
@@ -52,6 +76,10 @@ export const InsightsProvider = ({ children }) => {
   }, [token]);
 
   // ── fetchTransactions ──────────────────────────────────────────────────────
+  /**
+   * Fetches paginated transactions with optional filters.
+   * @param {Object} params - Query parameters (page, size, search, category, sortBy, sortDir)
+   */
   const fetchTransactions = useCallback(async (params = {}) => {
     if (!token) return;
     setTransactionsLoading(true);
@@ -94,6 +122,9 @@ export const InsightsProvider = ({ children }) => {
   }, [token]);
 
   // ── fetchAnomalies ─────────────────────────────────────────────────────────
+  /**
+   * Fetches all undismissed anomalies for the current user.
+   */
   const fetchAnomalies = useCallback(async () => {
     if (!token) return;
     setAnomaliesLoading(true);
@@ -108,6 +139,9 @@ export const InsightsProvider = ({ children }) => {
   }, [token]);
 
   // ── fetchReports ───────────────────────────────────────────────────────────
+  /**
+   * Fetches all reports for the current user.
+   */
   const fetchReports = useCallback(async () => {
     if (!token) return;
     setReportsLoading(true);
@@ -122,6 +156,9 @@ export const InsightsProvider = ({ children }) => {
   }, [token]);
 
   // ── fetchAccounts ──────────────────────────────────────────────────────────
+  /**
+   * Fetches all linked accounts/cards for the current user.
+   */
   const fetchAccounts = useCallback(async () => {
     if (!token) return;
     setAccountsLoading(true);
@@ -136,6 +173,9 @@ export const InsightsProvider = ({ children }) => {
   }, [token]);
 
   // ── SYNC FUNCTION ─────────────────────────────────────────────────────────
+  /**
+   * Manually triggers transaction sync and refreshes related data.
+   */
   const syncTransactions = useCallback(async () => {
     if (!token) return;
     try {
@@ -145,9 +185,8 @@ export const InsightsProvider = ({ children }) => {
         fetchAnalytics(1),
         fetchAnomalies()
       ]);
-      console.log("✅ Transactions synced");
     } catch (err) { 
-      console.error("Sync failed:", err.message); 
+      // Error is logged by service, no need to handle here
     }
   }, [token, fetchTransactions, fetchAnalytics, fetchAnomalies]);
 
@@ -192,16 +231,25 @@ export const InsightsProvider = ({ children }) => {
   }, [token, syncTransactions]);
 
   // ── dismissAnomaly ─────────────────────────────────────────────────────────
+  /**
+   * Dismisses an anomaly by ID.
+   * @param {string} id - Anomaly ID
+   */
   const dismissAnomaly = useCallback(async (id) => {
     try {
       await insightsService.dismissAnomaly(token, id);
       setAnomalies((prev) => prev.filter((a) => a.id !== id));
     } catch (err) { 
-      console.error("dismissAnomaly:", err.message); 
+      // Error is logged by service, no need to handle here
     }
   }, [token]);
 
   // ── linkCard ───────────────────────────────────────────────────────────────
+  /**
+   * Links a new card for the current user.
+   * @param {Object} cardData - Card details from form
+   * @returns {Promise} Result of linking operation
+   */
   const linkCard = useCallback(async (cardData) => {
     const result = await insightsService.linkCard(token, cardData);
     await fetchAccounts();
@@ -209,13 +257,12 @@ export const InsightsProvider = ({ children }) => {
     return result;
   }, [token, fetchAccounts, fetchTransactions]);
 
-  // ===== FIXED: Derived values with safe checks =====
-  // Calculate these BEFORE using them in value object
+  // ── Derived values with safe checks ────────────────────────────────────────
   const hasLinkedCard = Array.isArray(accounts) ? accounts.length > 0 : false;
   const primaryAccount = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : null;
   const currentMonthName = new Date().toLocaleString("en-GB", { month: "long" });
 
-  // ===== Value object =====
+  // ── Value object ───────────────────────────────────────────────────────────
   const value = {
     // State
     analytics, 
@@ -242,7 +289,7 @@ export const InsightsProvider = ({ children }) => {
     linkCard,
     syncTransactions,
     
-    // Derived (now safely defined above)
+    // Derived
     hasLinkedCard,
     primaryAccount,
     currentMonthName,
@@ -251,6 +298,11 @@ export const InsightsProvider = ({ children }) => {
   return <InsightsContext.Provider value={value}>{children}</InsightsContext.Provider>;
 };
 
+/**
+ * Custom hook to use insights context.
+ * @returns {Object} Insights context value
+ * @throws {Error} If used outside of InsightsProvider
+ */
 export const useInsightsContext = () => {
   const ctx = useContext(InsightsContext);
   if (!ctx) throw new Error("useInsightsContext must be used inside <InsightsProvider>");

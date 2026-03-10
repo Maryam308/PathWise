@@ -24,6 +24,13 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Service responsible for integrating with Plaid API to handle banking operations.
+ * Manages institution data, account linking, transaction syncing, and balance updates.
+ * 
+ * @author PathWise Team
+ * @version 1.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -46,7 +53,9 @@ public class PlaidService {
     @Value("${plaid.env}")
     private String plaidEnv;
 
-    // Inner class for institution data
+    /**
+     * Inner class representing a Plaid institution with its capabilities.
+     */
     private static class PlaidInstitution {
         private final String id;
         private final String name;
@@ -66,32 +75,44 @@ public class PlaidService {
         public List<String> getCountryCodes() { return countryCodes; }
     }
 
-    // Cache for institution data
+    // Cache for institution data to minimize API calls
     private List<PlaidInstitution> supportedInstitutions = new ArrayList<>();
     private Instant lastFetchTime = null;
     private static final Duration CACHE_DURATION = Duration.ofHours(24);
     
-    // USD to BHD conversion rate
+    // USD to BHD conversion rate (1 USD = 0.376 BHD)
     private static final BigDecimal USD_TO_BHD = new BigDecimal("0.376");
     
-    // Fallback institutions
+    // Fallback institutions when Plaid API is unavailable
     private static final List<String> FALLBACK_INSTITUTIONS = Arrays.asList(
-        "ins_39", "ins_56", "ins_3", "ins_109512"
+        "ins_39",  // Chase
+        "ins_56",  // Wells Fargo
+        "ins_3",   // Bank of America
+        "ins_109512" // Capital One
     );
 
     // ── INSTITUTION MANAGEMENT ──
 
+    /**
+     * Retrieves supported institutions, either from cache or by refreshing.
+     *
+     * @return List of supported Plaid institutions
+     */
     private List<PlaidInstitution> getSupportedInstitutions() {
         if (!supportedInstitutions.isEmpty() && lastFetchTime != null && 
             Duration.between(lastFetchTime, Instant.now()).compareTo(CACHE_DURATION) < 0) {
+            log.debug("Returning {} cached institutions", supportedInstitutions.size());
             return supportedInstitutions;
         }
         return refreshInstitutionsCache();
     }
 
+    /**
+     * Fetches the latest list of supported institutions from Plaid API.
+     *
+     * @return Updated list of supported institutions
+     */
     private List<PlaidInstitution> refreshInstitutionsCache() {
-        log.info("Refreshing institutions cache from Plaid API...");
-        
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -123,7 +144,6 @@ public class PlaidService {
                 .collect(Collectors.toList());
 
             lastFetchTime = Instant.now();
-            log.info("✅ Fetched {} supported institutions", supportedInstitutions.size());
 
         } catch (Exception e) {
             log.error("Failed to fetch institutions: {}", e.getMessage());
@@ -134,7 +154,14 @@ public class PlaidService {
         return supportedInstitutions;
     }
 
+    /**
+     * Creates a fallback list of institutions when Plaid API is unavailable.
+     *
+     * @return Hardcoded list of common institutions
+     */
     private List<PlaidInstitution> createFallbackInstitutions() {
+        log.warn("Creating fallback institutions list");
+        
         Map<String, String> fallbackMap = Map.of(
             "ins_39", "Chase",
             "ins_56", "Wells Fargo",
@@ -152,6 +179,12 @@ public class PlaidService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * Maps raw API response data to a PlaidInstitution object.
+     *
+     * @param data Raw institution data from Plaid
+     * @return Structured PlaidInstitution object
+     */
     private PlaidInstitution mapToPlaidInstitution(Map<String, Object> data) {
         String id = (String) data.get("institution_id");
         String name = (String) data.get("name");
@@ -168,6 +201,11 @@ public class PlaidService {
         return new PlaidInstitution(id, name, products, countryCodes);
     }
 
+    /**
+     * Selects a random institution from the supported list.
+     *
+     * @return Randomly selected PlaidInstitution
+     */
     private PlaidInstitution getRandomInstitution() {
         List<PlaidInstitution> institutions = getSupportedInstitutions();
         
@@ -187,17 +225,26 @@ public class PlaidService {
             new Random().nextInt(validInstitutions.size())
         );
         
-        log.info("🎲 Selected: {} ({})", selected.getId(), selected.getName());
-        
         return selected;
     }
 
+    /**
+     * Retrieves an institution by its ID.
+     *
+     * @param institutionId The Plaid institution ID
+     * @return Optional containing the institution if found
+     */
     private Optional<PlaidInstitution> getInstitutionById(String institutionId) {
         return getSupportedInstitutions().stream()
             .filter(inst -> inst.getId().equals(institutionId))
             .findFirst();
     }
 
+    /**
+     * Constructs the Plaid API base URL based on environment.
+     *
+     * @return Plaid API endpoint URL
+     */
     private String getPlaidBaseUrl() {
         return switch (plaidEnv) {
             case "production" -> "https://production.plaid.com";
@@ -206,6 +253,11 @@ public class PlaidService {
         };
     }
 
+    /**
+     * Retrieves the current authenticated user's ID.
+     *
+     * @return User UUID
+     */
     private UUID getCurrentUserId() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
@@ -214,6 +266,11 @@ public class PlaidService {
                 .getId();
     }
 
+    /**
+     * Retrieves the current authenticated user entity.
+     *
+     * @return User entity
+     */
     private User getCurrentUser() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
@@ -221,6 +278,11 @@ public class PlaidService {
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
+    /**
+     * Fetches all accounts belonging to the current user.
+     *
+     * @return List of user accounts (max 1)
+     */
     public List<Account> getCurrentUserAccounts() {
         User user = getCurrentUser();
         return accountRepository.findByUserId(user.getId())
@@ -230,10 +292,13 @@ public class PlaidService {
 
     // ── ADD MONTHLY SALARY ──
     
+    /**
+     * Scheduled task that adds monthly salary to all accounts on the 1st of each month.
+     * Runs at midnight Bahrain time.
+     */
     @Transactional
-    @Scheduled(cron = "0 0 0 1 * ?") // Run at midnight on the 1st of every month
+    @Scheduled(cron = "0 0 0 1 * ?", zone = "Asia/Bahrain")
     public void addMonthlySalaryToAllAccounts() {
-        log.info("💰 Adding monthly salary to all accounts for new month");
         List<Account> allAccounts = accountRepository.findAll();
         LocalDate now = LocalDate.now();
         
@@ -255,7 +320,7 @@ public class PlaidService {
                     account.setLastSalaryUpdate(now);
                     accountRepository.save(account);
                     
-                    log.info("💰 Added monthly salary {} to account {}. New balance: {}", 
+                    log.info("Added monthly salary {} to account {}. New balance: {}", 
                         monthlySalary, account.getId(), account.getBalance());
                 }
             } catch (Exception e) {
@@ -266,6 +331,11 @@ public class PlaidService {
 
     // ── FULL PLAID FLOW METHODS ──
 
+    /**
+     * Creates a link token for Plaid Link initialization.
+     *
+     * @return Plaid link token
+     */
     public String createLinkToken() {
         User user = getCurrentUser();
 
@@ -294,6 +364,13 @@ public class PlaidService {
         }
     }
 
+    /**
+     * Exchanges a public token for an access token and saves the account.
+     *
+     * @param publicToken Plaid public token
+     * @param bankId Bahrain bank ID
+     * @param institutionName Name of the institution
+     */
     @Transactional
     public void exchangeTokenAndSave(String publicToken, String bankId, String institutionName) {
         User user = getCurrentUser();
@@ -361,13 +438,16 @@ public class PlaidService {
                 .build();
 
         accountRepository.save(account);
-        log.info("✅ Account saved for user {} with bank: {}", user.getId(), bank.getDisplayName());
-        log.info("💰 Initial balance: Plaid={} + Salary={} = Total={}", 
-            plaidBalance, monthlySalary, initialBalance);
+        log.info("Account saved for user {} with bank: {}", user.getId(), bank.getDisplayName());
 
         fetchAndStoreTransactions(accessToken, account);
     }
 
+    /**
+     * Links a card manually without using Plaid Link.
+     *
+     * @param request Card linking request containing card details
+     */
     @Transactional
     public void linkCard(LinkCardRequest request) {
         User user = getCurrentUser();
@@ -412,14 +492,11 @@ public class PlaidService {
                 .build();
 
         accountRepository.save(account);
-        log.info("✅ Card linked for user {}: {} (using random Plaid institution: {} - {})", 
+        log.info("Card linked for user {}: {} (using random Plaid institution: {} - {})", 
                 user.getId(), request.getBank().getDisplayName(), 
                 randomInstitution.getId(), randomInstitution.getName());
-        log.info("💰 Initial balance: Plaid={} + Salary={} = Total={}", 
-            plaidBalance, monthlySalary, initialBalance);
 
         try {
-            log.info("Waiting 5 seconds for transactions to be ready...");
             Thread.sleep(5000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -428,7 +505,9 @@ public class PlaidService {
         fetchAndStoreTransactions(accessToken, account);
     }
 
-    // ── MANUAL SYNC METHOD (kept for frontend use) ──
+    /**
+     * Manually triggers transaction sync for the current user.
+     */
     @Transactional
     public void syncTransactions() {
         User user = getCurrentUser();
@@ -441,6 +520,12 @@ public class PlaidService {
         fetchAndStoreTransactions(account.getPlaidAccessToken(), account);
     }
 
+    /**
+     * Creates a sandbox public token for testing.
+     *
+     * @param institutionId Plaid institution ID
+     * @return Sandbox public token
+     */
     private String createSandboxPublicToken(String institutionId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -463,6 +548,12 @@ public class PlaidService {
         }
     }
 
+    /**
+     * Exchanges a public token for an access token.
+     *
+     * @param publicToken Plaid public token
+     * @return Plaid access token
+     */
     private String exchangePublicToken(String publicToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -479,6 +570,12 @@ public class PlaidService {
         return (String) response.get("access_token");
     }
 
+    /**
+     * Retrieves account details from Plaid using an access token.
+     *
+     * @param accessToken Plaid access token
+     * @return Plaid account data
+     */
     private Map<String, Object> getPlaidAccount(String accessToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -500,6 +597,13 @@ public class PlaidService {
         return accounts.get(0);
     }
 
+    /**
+     * Fetches and stores transactions from Plaid for a given account.
+     * Updates account balance based on net transaction changes.
+     *
+     * @param accessToken Plaid access token
+     * @param account Account entity to associate transactions with
+     */
     @Transactional
     public void fetchAndStoreTransactions(String accessToken, Account account) {
         HttpHeaders headers = new HttpHeaders();
@@ -517,15 +621,14 @@ public class PlaidService {
         );
 
         try {
-            log.info("Fetching transactions from Plaid for account: {}", account.getId());
             Map<String, Object> response = restTemplate.postForObject(
                     getPlaidBaseUrl() + "/transactions/get",
                     new HttpEntity<>(body, headers), Map.class);
 
             List<Map<String, Object>> transactions = (List<Map<String, Object>>) response.get("transactions");
             
-            // Track ONLY current month expenses to subtract from balance
-            BigDecimal totalCurrentMonthExpenses = BigDecimal.ZERO;
+            // Track net balance change from ALL transactions
+            BigDecimal totalBalanceChange = BigDecimal.ZERO;
             LocalDate now = LocalDate.now();
             
             // Prepare transactions for batch processing
@@ -538,7 +641,6 @@ public class PlaidService {
                 
                 // Skip if transaction already exists
                 if (transactionRepository.existsByPlaidTransactionId(plaidTxnId)) {
-                    log.debug("Skipping existing transaction: {}", plaidTxnId);
                     continue;
                 }
 
@@ -579,7 +681,7 @@ public class PlaidService {
                         Map<String, String> batchResults = aiCategorizationService.categorizeBatch(batch);
                         aiCategories.putAll(batchResults);
                     } catch (Exception e) {
-                        log.error("Batch processing failed", e);
+                        log.error("Batch processing failed, falling back to individual categorization", e);
                         for (Map<String, Object> txnInfo : batch) {
                             String id = (String) txnInfo.get("id");
                             BigDecimal amount = (BigDecimal) txnInfo.get("amount");
@@ -629,7 +731,6 @@ public class PlaidService {
                         upperName.contains("BONUS") ||
                         upperName.contains("INCOME")) {
                         transactionType = "CREDIT";
-                        log.info("💰 Income detected: {} - {}", merchantName, bhdAmount);
                     }
                 }
 
@@ -641,11 +742,6 @@ public class PlaidService {
                 }
 
                 LocalDate txnDate = LocalDate.parse((String) txn.get("date"));
-                
-                // Check if this is a current month expense
-                boolean isCurrentMonthExpense = transactionType.equals("DEBIT") && 
-                    txnDate.getMonth() == now.getMonth() && 
-                    txnDate.getYear() == now.getYear();
                 
                 TransactionCategory category = getOrCreateCategory(categoryName);
 
@@ -662,34 +758,36 @@ public class PlaidService {
                         .createdAt(LocalDateTime.now())
                         .build());
                 
-                // ONLY subtract current month expenses from balance
-                if (isCurrentMonthExpense) {
-                    totalCurrentMonthExpenses = totalCurrentMonthExpenses.add(bhdAmount.abs());
-                    log.info("💸 Current month expense: {} - {}", merchantName, bhdAmount.abs());
+                // Track balance change for BOTH income and expenses
+                if (transactionType.equals("DEBIT")) {
+                    // Expense - subtract from balance
+                    totalBalanceChange = totalBalanceChange.subtract(bhdAmount.abs());
+                } else if (transactionType.equals("CREDIT")) {
+                    // Income - add to balance
+                    totalBalanceChange = totalBalanceChange.add(bhdAmount.abs());
                 }
                 
                 saved++;
             }
             
-            // Update account balance by subtracting ONLY current month expenses
-            if (totalCurrentMonthExpenses.compareTo(BigDecimal.ZERO) > 0) {
+            // Update account balance with net change from ALL transactions
+            if (totalBalanceChange.compareTo(BigDecimal.ZERO) != 0) {
                 BigDecimal currentBalance = account.getBalance();
-                BigDecimal newBalance = currentBalance.subtract(totalCurrentMonthExpenses);
+                BigDecimal newBalance = currentBalance.add(totalBalanceChange);
                 account.setBalance(newBalance);
                 
                 // Update total expenses to date
-                BigDecimal currentTotalExpenses = account.getTotalExpensesToDate() != null ? 
-                    account.getTotalExpensesToDate() : BigDecimal.ZERO;
-                account.setTotalExpensesToDate(currentTotalExpenses.add(totalCurrentMonthExpenses));
+                if (totalBalanceChange.compareTo(BigDecimal.ZERO) < 0) {
+                    BigDecimal expenseAmount = totalBalanceChange.abs();
+                    BigDecimal currentTotalExpenses = account.getTotalExpensesToDate() != null ? 
+                        account.getTotalExpensesToDate() : BigDecimal.ZERO;
+                    account.setTotalExpensesToDate(currentTotalExpenses.add(expenseAmount));
+                }
                 
                 accountRepository.save(account);
-                
-                log.info("💰 Subtracted {} in current month expenses from balance. Old: {}, New: {}", 
-                    totalCurrentMonthExpenses, currentBalance, newBalance);
             }
             
-            log.info("✅ Saved {} transactions for account {}", saved, account.getId());
-            log.info("💰 Current month expenses total: {}", totalCurrentMonthExpenses);
+            log.info("Saved {} transactions for account {}", saved, account.getId());
             
         } catch (Exception e) {
             log.error("Failed to fetch transactions: {}", e.getMessage());
@@ -697,6 +795,12 @@ public class PlaidService {
         }
     }
 
+    /**
+     * Determines a fallback category based on transaction amount.
+     *
+     * @param amount Transaction amount
+     * @return Category name
+     */
     private String fallbackByAmount(BigDecimal amount) {
         if (amount.compareTo(new BigDecimal("500")) > 0) return "SHOPPING";
         if (amount.compareTo(new BigDecimal("100")) > 0) return "FOOD & DINING";
@@ -705,6 +809,12 @@ public class PlaidService {
         return "OTHER";
     }
 
+    /**
+     * Retrieves or creates a transaction category by name.
+     *
+     * @param name Category name
+     * @return TransactionCategory entity
+     */
     private TransactionCategory getOrCreateCategory(String name) {
         return categoryRepository.findByName(name)
                 .orElseGet(() -> categoryRepository.save(TransactionCategory.builder()
@@ -714,12 +824,24 @@ public class PlaidService {
                         .build()));
     }
 
+    /**
+     * Extracts a BigDecimal amount from various object types.
+     *
+     * @param obj Amount object from Plaid response
+     * @return Extracted BigDecimal amount
+     */
     private BigDecimal extractAmount(Object obj) {
         if (obj == null) return BigDecimal.ZERO;
         if (obj instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
         return new BigDecimal(obj.toString());
     }
 
+    /**
+     * Returns an emoji icon for a category.
+     *
+     * @param category Category name
+     * @return Emoji string
+     */
     private String getCategoryIcon(String category) {
         return switch (category.toUpperCase()) {
             case "FOOD & DINING" -> "🍔";
@@ -734,6 +856,12 @@ public class PlaidService {
         };
     }
 
+    /**
+     * Returns a color hex code for a category.
+     *
+     * @param category Category name
+     * @return Color hex string
+     */
     private String getCategoryColor(String category) {
         return switch (category.toUpperCase()) {
             case "FOOD & DINING" -> "#FF6B6B";

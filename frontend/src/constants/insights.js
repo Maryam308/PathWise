@@ -1,3 +1,17 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// constants/insights.js
+// Centralized constants for the insights feature including:
+// - Transaction categories with icons and styling
+// - Bahrain bank list
+// - Pagination settings
+// - Chart colors
+// - Anomaly severity styles
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Transaction categories with display labels, icons, and Tailwind classes
+ * Values must match backend TransactionCategory.name
+ */
 export const TX_CATEGORIES = [
   { value: "FOOD & DINING", label: "Food & Dining", icon: "🍽️" },
   { value: "TRANSPORT", label: "Transport", icon: "🚗" },
@@ -15,13 +29,18 @@ export const TX_CATEGORIES = [
   { value: "OTHER", label: "Other", icon: "💳" },
 ];
 
-
-// Quick emoji lookup by category string
+/**
+ * Quick emoji lookup by category string
+ * @type {Object.<string, string>}
+ */
 export const CATEGORY_ICON = Object.fromEntries(
   TX_CATEGORIES.map((c) => [c.value, c.icon])
 );
 
-// Tailwind classes for the category icon pill
+/**
+ * Tailwind CSS classes for category pills
+ * @type {Object.<string, string>}
+ */
 export const CATEGORY_STYLE = {
   "FOOD & DINING": "bg-amber-100 text-amber-600",
   "TRANSPORT": "bg-blue-100 text-blue-600",
@@ -39,14 +58,20 @@ export const CATEGORY_STYLE = {
   "OTHER": "bg-gray-100 text-gray-500",
 };
 
-// Pie-chart colours — brand palette
+/**
+ * Color palette for pie charts
+ * Brand colors with additional shades for multiple categories
+ */
 export const PIE_COLORS = [
   "#2c3347", "#6b7c3f", "#a3b46a", "#3d4357",
   "#8d9e54", "#c5d48a", "#4a5568", "#68775e",
   "#10B981", "#3B82F6", "#F59E0B", "#EF4444",
 ];
 
-// Bahrain banks — values must match BahrainBank enum in backend
+/**
+ * Bahrain banks list - values must match BahrainBank enum in backend
+ * @type {Array.<{value: string, label: string}>}
+ */
 export const BAHRAIN_BANKS = [
   { value: "NBB", label: "National Bank of Bahrain" },
   { value: "BBK", label: "Bank of Bahrain and Kuwait" },
@@ -64,7 +89,10 @@ export const BAHRAIN_BANKS = [
   { value: "BANK_ABC", label: "Bank ABC" },
 ];
 
-// Month filter options
+/**
+ * Month filter options for transaction filtering
+ * @type {Array.<{value: number, label: string}>}
+ */
 export const MONTH_OPTIONS = [
   { value: 1, label: "January" },
   { value: 2, label: "February" },
@@ -80,7 +108,10 @@ export const MONTH_OPTIONS = [
   { value: 12, label: "December" },
 ];
 
-// Sort options for transaction table
+/**
+ * Sort options for transaction table
+ * @type {Array.<{value: string, label: string}>}
+ */
 export const SORT_OPTIONS = [
   { value: "date_desc", label: "Newest First" },
   { value: "date_asc", label: "Oldest First" },
@@ -88,7 +119,10 @@ export const SORT_OPTIONS = [
   { value: "amount_desc", label: "Amount: High → Low" },
 ];
 
-// Analytics time-range tabs (current month = 1, last 3 months = 3)
+/**
+ * Analytics time range tabs
+ * @type {Array.<{value: number, label: string}>}
+ */
 export const ANALYTICS_RANGES = [
   { value: 1, label: "This month" },
   { value: 3, label: "3 months" },
@@ -96,15 +130,22 @@ export const ANALYTICS_RANGES = [
   { value: 12, label: "12 months" },
 ];
 
-// Anomaly severity styles
+/**
+ * Anomaly severity styling configuration
+ * @type {Object.<string, {icon: string, bg: string, border: string, text: string}>}
+ */
 export const ANOMALY_SEVERITY = {
   HIGH: { icon: "🚨", bg: "bg-red-50", border: "border-red-200", text: "text-red-700" },
   MEDIUM: { icon: "⚠️", bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
   LOW: { icon: "ℹ️", bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
 };
 
-// Rows per page in My Card tab
+/**
+ * Number of transactions to display per page in the My Card tab
+ */
 export const TRANSACTIONS_PER_PAGE = 8;
 
-// Rows shown on Dashboard home preview
+/**
+ * Number of recent transactions to show on the dashboard preview
+ */
 export const DASHBOARD_RECENT_TX = 4;

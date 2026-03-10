@@ -15,9 +15,15 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pie Chart using Recharts with enhanced empty state
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Pie Chart component using Recharts
+ * Displays spending breakdown by category with hover interactions
+ * 
+ * @param {Object} props - Component props
+ * @param {Object} props.data - Spending by category data
+ * @param {number} props.months - Selected time range in months
+ * @param {string} props.currentMonthName - Name of current month
+ */
 const PieChart = ({ data, months, currentMonthName }) => {
   const [activeIndex, setActiveIndex] = useState(null);
 
@@ -47,14 +53,25 @@ const PieChart = ({ data, months, currentMonthName }) => {
     );
   }
 
+  /**
+   * Handles mouse enter on pie slice
+   * @param {*} _ - Event data (unused)
+   * @param {number} index - Index of hovered slice
+   */
   const onPieEnter = (_, index) => {
     setActiveIndex(index);
   };
 
+  /**
+   * Handles mouse leave from pie slice
+   */
   const onPieLeave = () => {
     setActiveIndex(null);
   };
 
+  /**
+   * Custom tooltip component for pie chart
+   */
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       return (
@@ -104,7 +121,7 @@ const PieChart = ({ data, months, currentMonthName }) => {
             layout="vertical" 
             align="right"
             verticalAlign="middle"
-            formatter={(value, entry) => (
+            formatter={(value) => (
               <span className="text-sm text-gray-700">{value}</span>
             )}
           />
@@ -114,9 +131,15 @@ const PieChart = ({ data, months, currentMonthName }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Monthly Bar Chart using Recharts with horizontal scroll
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Monthly Bar Chart component using Recharts
+ * Displays income vs expenses over time with horizontal scroll
+ * 
+ * @param {Object} props - Component props
+ * @param {Array} props.data - Monthly breakdown data
+ * @param {number} props.months - Selected time range in months
+ * @param {Function} props.onMonthsChange - Callback when months range changes
+ */
 const MonthlyBarChart = ({ data, months, onMonthsChange }) => {
   const [showMonths, setShowMonths] = useState(months || 6);
   
@@ -133,6 +156,9 @@ const MonthlyBarChart = ({ data, months, onMonthsChange }) => {
     savingsRate: item.savingsRate || 0
   }));
 
+  /**
+   * Custom tooltip component for bar chart
+   */
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
@@ -215,9 +241,14 @@ const MonthlyBarChart = ({ data, months, onMonthsChange }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Anomalies Section
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Anomalies Section component
+ * Displays spending anomalies with severity-based styling
+ * 
+ * @param {Object} props - Component props
+ * @param {Array} props.anomalies - List of anomalies
+ * @param {Function} props.onDismiss - Callback to dismiss an anomaly
+ */
 const AnomaliesSection = ({ anomalies, onDismiss }) => {
   if (!anomalies || anomalies.length === 0) {
     return (
@@ -232,7 +263,11 @@ const AnomaliesSection = ({ anomalies, onDismiss }) => {
     );
   }
 
-  // Severity colors: HIGH=red, MEDIUM=yellow, LOW=green
+  /**
+   * Returns CSS classes based on severity level
+   * @param {string} severity - Severity level (HIGH, MEDIUM, LOW)
+   * @returns {string} CSS classes
+   */
   const getSeverityColor = (severity) => {
     switch(severity) {
       case 'HIGH': return 'bg-red-50 border-red-200 text-red-700';
@@ -242,6 +277,11 @@ const AnomaliesSection = ({ anomalies, onDismiss }) => {
     }
   };
 
+  /**
+   * Returns icon based on severity level
+   * @param {string} severity - Severity level (HIGH, MEDIUM, LOW)
+   * @returns {string} Icon emoji
+   */
   const getSeverityIcon = (severity) => {
     switch(severity) {
       case 'HIGH': return '🔴';
@@ -267,6 +307,7 @@ const AnomaliesSection = ({ anomalies, onDismiss }) => {
               <button 
                 onClick={() => onDismiss(anomaly.id)}
                 className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors opacity-50 hover:opacity-100 text-sm"
+                aria-label="Dismiss anomaly"
               >
                 ✕
               </button>
@@ -295,9 +336,17 @@ const AnomaliesSection = ({ anomalies, onDismiss }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stat Card
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Stat Card component
+ * Displays a single statistic with icon and background
+ * 
+ * @param {Object} props - Component props
+ * @param {string} props.label - Stat label
+ * @param {string} props.value - Stat value
+ * @param {string} props.bg - Background color class
+ * @param {string} props.labelCn - Label text color class
+ * @param {string} props.sub - Subtext to display below value
+ */
 const StatCard = ({ label, value, bg, labelCn, sub }) => (
   <div className={`${bg} rounded-2xl p-5 shadow-lg`}>
     <p className={`${labelCn} text-xs font-semibold uppercase tracking-wider mb-1`}>{label}</p>
@@ -306,12 +355,24 @@ const StatCard = ({ label, value, bg, labelCn, sub }) => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Reports Modal
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Reports Modal component
+ * Displays list of generated reports and allows generating new ones
+ * 
+ * @param {Object} props - Component props
+ * @param {Array} props.reports - List of reports
+ * @param {boolean} props.loading - Loading state
+ * @param {string} props.token - JWT token
+ * @param {Function} props.onClose - Close modal callback
+ * @param {Function} props.onViewReport - View report callback
+ * @param {boolean} props.hasLinkedCard - Whether user has linked card
+ */
 const ReportsModal = ({ reports, loading, token, onClose, onViewReport, hasLinkedCard }) => {
   const [generating, setGenerating] = useState(false);
 
+  /**
+   * Handles report generation
+   */
   const handleGenerate = async () => {
     if (!hasLinkedCard) {
       alert('Please link a card first to generate reports');
@@ -322,8 +383,11 @@ const ReportsModal = ({ reports, loading, token, onClose, onViewReport, hasLinke
       const report = await insightsService.generateReport(token);
       onViewReport(report);
       onClose();
-    } catch (err) { console.error(err); }
-    finally { setGenerating(false); }
+    } catch {
+      // Error handling is done by service
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -371,9 +435,15 @@ const ReportsModal = ({ reports, loading, token, onClose, onViewReport, hasLinke
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Report Inline
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Report Inline component
+ * Displays the currently selected report inline
+ * 
+ * @param {Object} props - Component props
+ * @param {Object} props.report - Report object
+ * @param {boolean} props.loading - Loading state
+ * @param {boolean} props.hasLinkedCard - Whether user has linked card
+ */
 const ReportInline = ({ report, loading, hasLinkedCard }) => {
   if (loading) return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 flex items-center justify-center gap-3">
@@ -409,9 +479,10 @@ const ReportInline = ({ report, loading, hasLinkedCard }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Page
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Main Insights Page
+ * Displays financial analytics, charts, anomalies, and reports
+ */
 const InsightsPage = () => {
   const { token } = useAuth();
   const {
@@ -436,18 +507,36 @@ const InsightsPage = () => {
     savingsRate: d.savingsRate || 0,
   }));
 
+  /**
+   * Handles viewing a report, fetching full content if needed
+   * @param {Object} r - Report object
+   */
   const handleViewReport = async (r) => {
-    if (r?.content) { setActiveReport(r); return; }
+    if (r?.content) { 
+      setActiveReport(r); 
+      return; 
+    }
     setReportLoading(true);
-    try { setActiveReport(await insightsService.getReport(token, r.id)); }
-    catch (err) { console.error(err); }
-    finally { setReportLoading(false); }
+    try { 
+      setActiveReport(await insightsService.getReport(token, r.id)); 
+    } catch { 
+      // Error handled by service
+    } finally { 
+      setReportLoading(false); 
+    }
   };
 
+  // Load most recent report on initial load
   useEffect(() => {
-    if (reports.length > 0 && !activeReport) handleViewReport(reports[0]);
-  }, [reports]);
+    if (reports.length > 0 && !activeReport) {
+      handleViewReport(reports[0]);
+    }
+  }, [reports]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Handles time range change
+   * @param {number} m - Number of months
+   */
   const handleRangeChange = (m) => {
     setMonths(m);
     fetchAnalytics(m);

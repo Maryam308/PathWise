@@ -23,6 +23,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Service responsible for calculating financial analytics and metrics.
+ * Provides data for dashboards, charts, and reports including income,
+ * expenses, balances, and spending patterns.
+ * 
+ * @author PathWise Team
+ * @version 1.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,10 +43,23 @@ public class AnalyticsService {
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("MMM yyyy");
     private static final DateTimeFormatter SORT_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
 
+    /**
+     * Retrieves analytics for the current authenticated user.
+     * 
+     * @param months Number of months to analyze
+     * @return AnalyticsResponse containing all financial metrics
+     */
     public AnalyticsResponse getAnalytics(int months) {
         return getAnalyticsForUser(getCurrentUser(), months);
     }
 
+    /**
+     * Core analytics calculation for a specific user.
+     * 
+     * @param user User entity
+     * @param months Number of months to analyze
+     * @return AnalyticsResponse containing all financial metrics
+     */
     public AnalyticsResponse getAnalyticsForUser(User user, int months) {
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusMonths(months);
@@ -69,18 +90,15 @@ public class AnalyticsService {
         // 2. Current month expenses = current month debit transactions only
         BigDecimal currentMonthExpenses = calculateCurrentMonthExpenses(currentMonthTransactions);
 
-        // ===== FIX: Use appropriate transactions for pie chart based on selected months =====
+        // Use appropriate transactions for pie chart based on selected months
         List<Transaction> pieChartTransactions;
-        String pieChartPeriod;
         
         if (months == 1) {
             // For "This month" button, use ONLY current month transactions
             pieChartTransactions = currentMonthTransactions;
-            pieChartPeriod = "CURRENT MONTH";
         } else {
             // For other ranges (3, 6, 12 months), use the selected period
             pieChartTransactions = periodTransactions;
-            pieChartPeriod = "LAST " + months + " MONTHS";
         }
 
         // Spending by category for pie chart
@@ -91,18 +109,8 @@ public class AnalyticsService {
                         Collectors.reducing(BigDecimal.ZERO, Transaction::getAmount, BigDecimal::add)
                 ));
 
-        log.info("=== Analytics for user {} ===", user.getId());
-        log.info("Selected Period: {} months", months);
-        log.info("Monthly Salary: {}", monthlySalary);
-        log.info("Current Month Credits: {}", 
-            currentMonthTransactions.stream()
-                .filter(t -> t.getType() == TransactionType.CREDIT)
-                .map(Transaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
-        log.info("Current Month Income (Salary + Credits): {}", currentMonthIncome);
-        log.info("Current Month Expenses: {}", currentMonthExpenses);
-        log.info("Plaid Balance: {}", plaidBalance);
-        log.info("📊 Pie Chart Showing: {} - Categories: {}", pieChartPeriod, spendingByCategory.keySet());
+        log.debug("Analytics for user {} - Period: {} months, Income: {}, Expenses: {}", 
+            user.getId(), months, currentMonthIncome, currentMonthExpenses);
 
         // Monthly breakdown for bar chart
         List<MonthlyData> monthlyBreakdown = generateMonthlyBreakdown(user, months, monthlySalary);
@@ -120,12 +128,19 @@ public class AnalyticsService {
                 .totalBalance(plaidBalance)                    // Just the Plaid balance
                 .totalIncome(currentMonthIncome)               // Salary + current month credits ONLY
                 .totalExpenses(currentMonthExpenses)           // Current month expenses only
-                .spendingByCategory(spendingByCategory)        // Now dynamic based on selected months
+                .spendingByCategory(spendingByCategory)        // Dynamic based on selected months
                 .monthlyBreakdown(monthlyBreakdown)
                 .dailySpending(dailySpending)
                 .build();
     }
 
+    /**
+     * Calculates total income for the current month.
+     * 
+     * @param transactions List of current month transactions
+     * @param monthlySalary User's monthly salary
+     * @return Total income (salary + credits)
+     */
     private BigDecimal calculateCurrentMonthIncome(List<Transaction> transactions, BigDecimal monthlySalary) {
         BigDecimal creditTotal = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.CREDIT)
@@ -135,6 +150,12 @@ public class AnalyticsService {
         return monthlySalary.add(creditTotal);
     }
 
+    /**
+     * Calculates total expenses for the current month.
+     * 
+     * @param transactions List of current month transactions
+     * @return Total expenses (debits)
+     */
     private BigDecimal calculateCurrentMonthExpenses(List<Transaction> transactions) {
         return transactions.stream()
                 .filter(t -> t.getType() == TransactionType.DEBIT)
@@ -142,6 +163,14 @@ public class AnalyticsService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /**
+     * Generates monthly breakdown data for bar charts.
+     * 
+     * @param user User entity
+     * @param months Number of months to include
+     * @param monthlySalary User's monthly salary
+     * @return List of MonthlyData objects for charting
+     */
     private List<MonthlyData> generateMonthlyBreakdown(User user, int months, BigDecimal monthlySalary) {
         List<MonthlyData> breakdown = new ArrayList<>();
         LocalDate now = LocalDate.now();
@@ -168,7 +197,7 @@ public class AnalyticsService {
             BigDecimal income;
             if (i == 0) {
                 income = monthlySalary.add(creditIncome);
-                log.info("Current month {} - Credits: {}, Salary: {}, Total Income: {}", 
+                log.debug("Current month {} - Credits: {}, Salary: {}, Total Income: {}", 
                     monthDate.format(MONTH_FMT), creditIncome, monthlySalary, income);
             } else {
                 income = creditIncome;
@@ -197,6 +226,13 @@ public class AnalyticsService {
         return breakdown;
     }
 
+    /**
+     * Calculates savings rate percentage.
+     * 
+     * @param income Total income
+     * @param expenses Total expenses
+     * @return Savings rate as percentage
+     */
     private BigDecimal calculateSavingsRate(BigDecimal income, BigDecimal expenses) {
         if (income.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
         return income.subtract(expenses)
@@ -205,6 +241,12 @@ public class AnalyticsService {
                 .setScale(1, RoundingMode.HALF_UP);
     }
 
+    /**
+     * Retrieves the current authenticated user.
+     * 
+     * @return User entity
+     * @throws UserNotFoundException if user not found
+     */
     private User getCurrentUser() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
