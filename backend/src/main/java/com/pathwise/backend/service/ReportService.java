@@ -48,18 +48,18 @@ public class ReportService {
 
     private static final DateTimeFormatter TITLE_FORMAT = DateTimeFormatter.ofPattern("MMM yyyy");
 
-    // Called from controller — manual trigger kept for testing
+    // Manual report generation (called when user clicks button)
     public Report generateReport() {
         return generateReportForUser(getCurrentUser());
     }
 
-    // Called by MonthlyReportScheduler — no security context needed
+    // Core report generation logic
     public Report generateReportForUser(User user) {
         log.info("Generating report for user: {}", user.getEmail());
 
         AnalyticsResponse analytics = analyticsService.getAnalyticsForUser(user, 3);
 
-        // Calculate savings rate here since it was removed from AnalyticsResponse
+        // Calculate savings rate
         BigDecimal savingsRate = analytics.getTotalIncome().compareTo(BigDecimal.ZERO) > 0
                 ? analytics.getTotalIncome()
                         .subtract(analytics.getTotalExpenses())
@@ -68,6 +68,7 @@ public class ReportService {
                         .setScale(1, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        // Get active anomalies
         String anomalySummary = anomalyRepository
                 .findByUserIdAndIsDismissedFalseOrderByCreatedAtDesc(user.getId())
                 .stream()
@@ -77,10 +78,12 @@ public class ReportService {
                         a.getMessage()))
                 .collect(Collectors.joining("\n"));
 
+        // Get spending by category
         String categorySummary = analytics.getSpendingByCategory().entrySet().stream()
                 .map(e -> String.format("- %s: BD %.2f", e.getKey(), e.getValue()))
                 .collect(Collectors.joining("\n"));
 
+        // Get monthly breakdown
         String monthlySummary = analytics.getMonthlyBreakdown().stream()
                 .map(m -> String.format("- %s: Income BD %.2f | Expenses BD %.2f | Net BD %.2f",
                         m.getMonth(),
@@ -89,6 +92,7 @@ public class ReportService {
                         m.getIncome().subtract(m.getExpenses())))
                 .collect(Collectors.joining("\n"));
 
+        // Build prompt for Groq
         String prompt = String.format("""
                 Generate a concise personal finance report for the last 3 months.
 
@@ -126,9 +130,11 @@ public class ReportService {
                 anomalySummary.isEmpty() ? "No anomalies detected" : anomalySummary
         );
 
+        // Call Groq API
         String content = callGroq(prompt);
         LocalDate now = LocalDate.now();
 
+        // Create and save report
         Report report = Report.builder()
                 .user(user)
                 .title("Financial Report - " + now.format(TITLE_FORMAT))
@@ -143,7 +149,7 @@ public class ReportService {
         return saved;
     }
 
-    // Lightweight list for history screen — no content field
+    // Get report history (lightweight, no content)
     public List<ReportSummary> getReportHistory() {
         User user = getCurrentUser();
         return reportRepository.findByUserIdOrderByCreatedAtDesc(user.getId())
@@ -152,7 +158,7 @@ public class ReportService {
                 .toList();
     }
 
-    // Full report when user clicks from history
+    // Get full report by ID
     public Report getReport(UUID reportId) {
         User user = getCurrentUser();
         Report report = reportRepository.findById(reportId)
@@ -163,6 +169,7 @@ public class ReportService {
         return report;
     }
 
+    // Call Groq API
     private String callGroq(String prompt) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -191,6 +198,7 @@ public class ReportService {
         }
     }
 
+    // Get current authenticated user
     private User getCurrentUser() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
@@ -198,5 +206,6 @@ public class ReportService {
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
+    // DTO for report history
     public record ReportSummary(UUID id, String title, LocalDateTime createdAt) {}
 }

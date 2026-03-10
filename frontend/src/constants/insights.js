@@ -15,11 +15,6 @@ export const TX_CATEGORIES = [
   { value: "OTHER", label: "Other", icon: "💳" },
 ];
 
-// Transaction types for filter
-export const TRANSACTION_TYPES = [
-  { value: "CREDIT", label: "Income", color: "text-emerald-600" },
-  { value: "DEBIT", label: "Expense", color: "text-red-500" },
-];
 
 // Quick emoji lookup by category string
 export const CATEGORY_ICON = Object.fromEntries(

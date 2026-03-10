@@ -35,7 +35,6 @@ export const InsightsProvider = ({ children }) => {
   // ── Accounts ───────────────────────────────────────────────────────────────
   const [accounts, setAccounts] = useState([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
 
   // ── fetchAnalytics ─────────────────────────────────────────────────────────
   const fetchAnalytics = useCallback(async (months = 1) => {
@@ -58,7 +57,6 @@ export const InsightsProvider = ({ children }) => {
     setTransactionsLoading(true);
     setTransactionsError(null);
     try {
-      // Request with pagination, search, category, and sort params
       const data = await insightsService.getTransactions(token, { 
         size: TRANSACTIONS_PER_PAGE, 
         ...params 
@@ -137,21 +135,61 @@ export const InsightsProvider = ({ children }) => {
     }
   }, [token]);
 
-  // ── Initial parallel load ──────────────────────────────────────────────────
+  // ── SYNC FUNCTION ─────────────────────────────────────────────────────────
+  const syncTransactions = useCallback(async () => {
+    if (!token) return;
+    try {
+      await insightsService.syncTransactions(token);
+      await Promise.all([
+        fetchTransactions({ page: 0 }),
+        fetchAnalytics(1),
+        fetchAnomalies()
+      ]);
+      console.log("✅ Transactions synced");
+    } catch (err) { 
+      console.error("Sync failed:", err.message); 
+    }
+  }, [token, fetchTransactions, fetchAnalytics, fetchAnomalies]);
+
+  // ── ON PAGE LOAD - Load all data ──────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
-    
+
     const loadInitialData = async () => {
       await Promise.all([
         fetchAnalytics(1),
         fetchAnomalies(),
         fetchReports(),
-        fetchAccounts()
+        fetchAccounts(),
+        fetchTransactions({ page: 0 })
       ]);
     };
     
     loadInitialData();
-  }, [token, fetchAnalytics, fetchAnomalies, fetchReports, fetchAccounts]);
+  }, [token, fetchAnalytics, fetchAnomalies, fetchReports, fetchAccounts, fetchTransactions]);
+
+  // ── SMART SYNC when user returns to tab after 5+ minutes ───────────────────
+  useEffect(() => {
+    if (!token) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        const lastSync = localStorage.getItem('lastTransactionSync');
+        const now = Date.now();
+        
+        if (!lastSync || now - parseInt(lastSync) > 5 * 60 * 1000) {
+          syncTransactions();
+          localStorage.setItem('lastTransactionSync', now.toString());
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [token, syncTransactions]);
 
   // ── dismissAnomaly ─────────────────────────────────────────────────────────
   const dismissAnomaly = useCallback(async (id) => {
@@ -163,43 +201,21 @@ export const InsightsProvider = ({ children }) => {
     }
   }, [token]);
 
-  // ── syncTransactions ───────────────────────────────────────────────────────
-  const syncTransactions = useCallback(async () => {
-    setSyncing(true);
-    try {
-      await insightsService.syncTransactions(token);
-      await Promise.all([
-        fetchTransactions({ page: 0 }), 
-        fetchAnalytics(1)
-      ]);
-    } catch (err) { 
-      console.error("sync:", err.message); 
-    } finally { 
-      setSyncing(false); 
-    }
-  }, [token, fetchTransactions, fetchAnalytics]);
-
-  // ── linkCard — throws so component can show error ─────────────────────────
+  // ── linkCard ───────────────────────────────────────────────────────────────
   const linkCard = useCallback(async (cardData) => {
     const result = await insightsService.linkCard(token, cardData);
     await fetchAccounts();
-    try {
-      await insightsService.syncTransactions(token);
-      await Promise.all([
-        fetchTransactions({ page: 0 }), 
-        fetchAnalytics(1)
-      ]);
-    } catch { 
-      /* non-fatal */ 
-    }
+    await fetchTransactions({ page: 0 });
     return result;
-  }, [token, fetchAccounts, fetchTransactions, fetchAnalytics]);
+  }, [token, fetchAccounts, fetchTransactions]);
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-  const hasLinkedCard = accounts.length > 0;
-  const primaryAccount = accounts[0] ?? null;
+  // ===== FIXED: Derived values with safe checks =====
+  // Calculate these BEFORE using them in value object
+  const hasLinkedCard = Array.isArray(accounts) ? accounts.length > 0 : false;
+  const primaryAccount = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : null;
   const currentMonthName = new Date().toLocaleString("en-GB", { month: "long" });
 
+  // ===== Value object =====
   const value = {
     // State
     analytics, 
@@ -215,7 +231,6 @@ export const InsightsProvider = ({ children }) => {
     reportsLoading,
     accounts, 
     accountsLoading,
-    syncing,
     
     // Actions
     fetchAnalytics,
@@ -224,10 +239,10 @@ export const InsightsProvider = ({ children }) => {
     fetchReports,
     fetchAccounts,
     dismissAnomaly,
-    syncTransactions,
     linkCard,
+    syncTransactions,
     
-    // Derived
+    // Derived (now safely defined above)
     hasLinkedCard,
     primaryAccount,
     currentMonthName,

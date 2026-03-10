@@ -24,41 +24,43 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .cors(cors -> {})
-
-                .csrf(csrf -> csrf.disable())
-
-                // Add exception handling to return 401 for unauthenticated requests
-                .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
-                        })
-                )
-
-                .authorizeHttpRequests(auth -> auth
-                        // Public endpoints - Authentication
-                        .requestMatchers("/api/auth/**").permitAll()
-
-                        // Public endpoints - Swagger UI and OpenAPI
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/api-docs/**",
-                                "/v3/api-docs/**",
-                                "/swagger-resources/**",
-                                "/webjars/**"
-                        ).permitAll()
-
-                        // Public health check
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-
-                        // All other endpoints require authentication
-                        .anyRequest().authenticated()
-                )
-                .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .cors(cors -> {})
+            .csrf(csrf -> csrf
+                .ignoringRequestMatchers("/h2-console/**")  // Allow H2 console POST requests
+                .disable()
+            )
+            // Allow H2 console iframe to render (H2 uses frames internally)
+            .headers(headers -> headers
+                .frameOptions(frame -> frame.disable())
+            )
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                })
+            )
+            .authorizeHttpRequests(auth -> auth
+                // Public endpoints - Authentication
+                .requestMatchers("/api/auth/**").permitAll()
+                // H2 Console - dev only
+                .requestMatchers("/h2-console/**").permitAll()
+                // Public endpoints - Swagger UI and OpenAPI
+                .requestMatchers(
+                    "/swagger-ui/**",
+                    "/swagger-ui.html",
+                    "/api-docs/**",
+                    "/v3/api-docs/**",
+                    "/swagger-resources/**",
+                    "/webjars/**"
+                ).permitAll()
+                // Public health check
+                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                // All other endpoints require authentication
+                .anyRequest().authenticated()
+            )
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

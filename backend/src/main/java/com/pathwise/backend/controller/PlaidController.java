@@ -50,12 +50,6 @@ public class PlaidController {
         return ResponseEntity.ok("Bank card linked successfully!");
     }
 
-    @PostMapping("/sync")
-    public ResponseEntity<String> syncTransactions() {
-        plaidService.syncTransactions();
-        return ResponseEntity.ok("Transactions synced successfully!");
-    }
-
     @GetMapping("/transactions")
     public ResponseEntity<Page<TransactionResponse>> getTransactions(
             @RequestParam(required = false) String search,

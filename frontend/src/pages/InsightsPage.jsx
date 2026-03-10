@@ -16,9 +16,9 @@ import {
 } from 'recharts';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pie Chart using Recharts
+// Pie Chart using Recharts with enhanced empty state
 // ─────────────────────────────────────────────────────────────────────────────
-const PieChart = ({ data }) => {
+const PieChart = ({ data, months, currentMonthName }) => {
   const [activeIndex, setActiveIndex] = useState(null);
 
   const chartData = Object.entries(data || {})
@@ -28,8 +28,23 @@ const PieChart = ({ data }) => {
       value: parseFloat(value)
     }));
 
+  // Enhanced empty state with contextual message
   if (chartData.length === 0) {
-    return <div className="flex items-center justify-center h-48"><p className="text-sm text-gray-400">No spending data yet</p></div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-48">
+        <p className="text-3xl mb-2">📊</p>
+        <p className="text-sm text-gray-400">
+          {months === 1 
+            ? `No spending in ${currentMonthName}` 
+            : `No spending in the last ${months} months`}
+        </p>
+        <p className="text-xs text-gray-300 mt-1">
+          {months === 1 
+            ? "Transactions will appear here when you make purchases" 
+            : "Try selecting a different time range or add transactions"}
+        </p>
+      </div>
+    );
   }
 
   const onPieEnter = (_, index) => {
@@ -151,7 +166,6 @@ const MonthlyBarChart = ({ data, months, onMonthsChange }) => {
             }`}>
             12 Months
           </button>
-          
         </div>
       </div>
 
@@ -525,10 +539,14 @@ const InsightsPage = () => {
             </div>
           ) : analytics ? (
             <div className="flex flex-col gap-5">
-              {/* Spending pie - using Recharts */}
+              {/* Spending pie - with enhanced empty state */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h3 className="text-base font-bold text-gray-800 mb-6">{pieLabel}</h3>
-                <PieChart data={analytics.spendingByCategory} />
+                <PieChart 
+                  data={analytics.spendingByCategory} 
+                  months={months}
+                  currentMonthName={currentMonthName}
+                />
               </div>
 
               {/* Bar Chart + Anomalies - side by side */}
