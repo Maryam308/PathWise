@@ -1,25 +1,27 @@
 package com.pathwise.backend.service;
 
 import com.pathwise.backend.dto.TransactionResponse;
+import com.pathwise.backend.enums.TransactionType;
 import com.pathwise.backend.exception.UserNotFoundException;
 import com.pathwise.backend.model.Transaction;
 import com.pathwise.backend.model.User;
 import com.pathwise.backend.repository.TransactionRepository;
 import com.pathwise.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
-import jakarta.persistence.criteria.Predicate;
 import java.time.LocalDate;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
@@ -28,51 +30,110 @@ public class TransactionService {
     private final UserRepository userRepository;
 
     public Page<TransactionResponse> getTransactions(
-            String search, String category, Integer month, Integer year, 
-            String sortBy, String sortDir, Pageable pageable) {
-        
+            String search, 
+            String category, 
+            String type, 
+            Integer month, 
+            Integer year,
+            String sortBy, 
+            String sortDir, 
+            Pageable pageable) {
+
         User user = getCurrentUser();
+
+        // Get all transactions for the user
+        List<Transaction> allTransactions;
+
+        if (month != null && year != null) {
+            LocalDate start = LocalDate.of(year, month, 1);
+            LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
+            allTransactions = transactionRepository
+                    .findByAccountUserIdAndTransactionDateBetween(user.getId(), start, end);
+        } else {
+            allTransactions = transactionRepository.findByAccountUserId(user.getId());
+        }
+
+        log.info("Before filtering - total transactions: {}", allTransactions.size());
         
-        Specification<Transaction> spec = (root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-            
-            // User filter
-            predicates.add(cb.equal(root.get("account").get("user").get("id"), user.getId()));
-            
-            // Date range filter
-            if (month != null && year != null) {
-                LocalDate start = LocalDate.of(year, month, 1);
-                LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-                predicates.add(cb.between(root.get("transactionDate"), start, end));
-            }
-            
-            // Search by merchant name
-            if (search != null && !search.trim().isEmpty()) {
-                predicates.add(cb.like(cb.lower(root.get("merchantName")), 
-                    "%" + search.toLowerCase() + "%"));
-            }
-            
-            // Category filter
-            if (category != null && !category.trim().isEmpty()) {
-                predicates.add(cb.equal(root.get("category").get("name"), category));
-            }
-            
-            return cb.and(predicates.toArray(new Predicate[0]));
-        };
-        
+        // Count by type for debugging
+        long creditCount = allTransactions.stream()
+            .filter(t -> t.getType() == TransactionType.CREDIT).count();
+        long debitCount = allTransactions.stream()
+            .filter(t -> t.getType() == TransactionType.DEBIT).count();
+        log.info("Available in all transactions - CREDIT (Income): {}, DEBIT (Expense): {}", creditCount, debitCount);
+
+        // Apply filters
+        List<Transaction> filtered = allTransactions.stream()
+                .filter(t -> {
+                    // Search filter
+                    if (search != null && !search.trim().isEmpty()) {
+                        String merchant = t.getMerchantName() != null ? t.getMerchantName().toLowerCase() : "";
+                        if (!merchant.contains(search.toLowerCase())) {
+                            return false;
+                        }
+                    }
+                    // Category filter
+                    if (category != null && !category.trim().isEmpty()) {
+                        String txnCategory = t.getCategory() != null ? t.getCategory().getName() : "OTHER";
+                        if (!txnCategory.equals(category)) {
+                            return false;
+                        }
+                    }
+                    // Type filter (CREDIT = Income, DEBIT = Expense)
+                    if (type != null && !type.trim().isEmpty()) {
+                        if (type.equals("CREDIT") && t.getType() != TransactionType.CREDIT) {
+                            return false;
+                        }
+                        if (type.equals("DEBIT") && t.getType() != TransactionType.DEBIT) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+
+        log.info("After filtering - filtered transactions: {}, type filter: {}", filtered.size(), type);
+
         // Apply sorting
         if (sortBy != null && sortDir != null) {
-            Sort sort = Sort.by(Sort.Direction.fromString(sortDir), sortBy);
-            pageable = org.springframework.data.domain.PageRequest.of(
-                pageable.getPageNumber(), 
-                pageable.getPageSize(), 
-                sort
-            );
+            Comparator<Transaction> comparator = getComparator(sortBy, sortDir);
+            filtered.sort(comparator);
+        } else {
+            // Default sort by date desc
+            filtered.sort((a, b) -> b.getTransactionDate().compareTo(a.getTransactionDate()));
         }
-        
-        Page<Transaction> page = transactionRepository.findAll(spec, pageable);
-        
-        return page.map(this::toResponse);
+
+        // Apply pagination
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        List<Transaction> pageContent = start > filtered.size() ?
+                List.of() : filtered.subList(start, end);
+
+        List<TransactionResponse> responses = pageContent.stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(responses, pageable, filtered.size());
+    }
+
+    private Comparator<Transaction> getComparator(String sortBy, String sortDir) {
+        Comparator<Transaction> comparator;
+
+        switch (sortBy) {
+            case "amount":
+                comparator = Comparator.comparing(Transaction::getAmount);
+                break;
+            case "merchantName":
+                comparator = Comparator.comparing(Transaction::getMerchantName,
+                        Comparator.nullsLast(String::compareTo));
+                break;
+            case "transactionDate":
+            default:
+                comparator = Comparator.comparing(Transaction::getTransactionDate);
+                break;
+        }
+
+        return sortDir.equalsIgnoreCase("DESC") ? comparator.reversed() : comparator;
     }
 
     private TransactionResponse toResponse(Transaction t) {

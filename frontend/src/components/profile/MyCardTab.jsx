@@ -1,4 +1,16 @@
-import { useState, useEffect } from "react";
+// ─────────────────────────────────────────────────────────────────────────────
+// components/profile/MyCardTab.jsx
+// Manages card linking, display, and transaction history for the user's linked card.
+//
+// Features:
+// - Card visual display (placeholder when no card, actual card when linked)
+// - Add card form with validation
+// - Transaction table with search, category filter, sort, and pagination
+// - Auto-fetches transactions when card is linked
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useState, useEffect, useCallback } from "react";
+import React from "react";
 import { useInsights } from "../../hooks/useInsights.js";
 import { Spinner } from "../ui/primitives.jsx";
 import {
@@ -14,21 +26,24 @@ import {
   formatCardNumber,
 } from "../../utils/insightsUtils.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Card visual
-// ─────────────────────────────────────────────────────────────────────────────
-const CardVisual = ({ account, onAddCard }) => {
+/**
+ * Card visual component - displays either a placeholder or actual card details
+ * 
+ * @param {Object} props - Component props
+ * @param {Object|null} props.account - Account object with card details
+ * @param {Function} props.onAddCard - Callback when add card button is clicked
+ */
+const CardVisual = React.memo(({ account, onAddCard }) => {
   if (!account) {
+    // Placeholder card for adding new card
     return (
       <button
         onClick={onAddCard}
-        className="w-full max-w-sm mx-auto block group focus:outline-none"
+        className="w-full max-w-md mx-auto block group focus:outline-none"
         aria-label="Add a card"
       >
-        <div className="relative h-44 rounded-2xl bg-[#2c3347] overflow-hidden shadow-xl
-                        group-hover:opacity-90 transition-opacity cursor-pointer">
-          <div className="absolute bottom-0 right-0 w-36 h-36 bg-[#6b7c3f]/40 rounded-full
-                          translate-x-10 translate-y-10" />
+        <div className="relative h-44 rounded-2xl bg-[#2c3347] overflow-hidden shadow-xl group-hover:opacity-90 transition-opacity">
+          <div className="absolute bottom-0 right-0 w-36 h-36 bg-[#6b7c3f]/40 rounded-full translate-x-10 translate-y-10" />
           <div className="absolute top-4 right-4 flex">
             <div className="w-8 h-8 rounded-full bg-red-500/90" />
             <div className="w-8 h-8 rounded-full bg-amber-400/80 -ml-3" />
@@ -45,6 +60,7 @@ const CardVisual = ({ account, onAddCard }) => {
     );
   }
 
+  // Actual card display with masked details
   const bankLabel = account.bankName || (account.bank ? account.bank.replace(/_/g, " ") : "Your Bank");
   const masked = account.maskedNumber
     ? `•••• •••• •••• ${String(account.maskedNumber).slice(-4)}`
@@ -54,7 +70,7 @@ const CardVisual = ({ account, onAddCard }) => {
     : "";
 
   return (
-    <div className="w-full max-w-sm mx-auto">
+    <div className="w-full max-w-md mx-auto">
       <div className="relative h-44 rounded-2xl bg-[#2c3347] overflow-hidden shadow-xl">
         <div className="absolute bottom-0 right-0 w-44 h-44 bg-[#6b7c3f]/25 rounded-full translate-x-14 translate-y-14" />
         <p className="absolute top-4 left-5 text-white font-bold text-sm">{bankLabel}</p>
@@ -72,12 +88,18 @@ const CardVisual = ({ account, onAddCard }) => {
       </div>
     </div>
   );
-};
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Add Card form
-// ─────────────────────────────────────────────────────────────────────────────
-const AddCardForm = ({ onSubmit, onCancel, loading, error }) => {
+/**
+ * Add card form component with validation
+ * 
+ * @param {Object} props - Component props
+ * @param {Function} props.onSubmit - Submit handler with card data
+ * @param {Function} props.onCancel - Cancel handler
+ * @param {boolean} props.loading - Loading state
+ * @param {string|null} props.error - Error message if any
+ */
+const AddCardForm = React.memo(({ onSubmit, onCancel, loading, error }) => {
   const [form, setForm] = useState({
     cardHolderName: "",
     cardNumber: "",
@@ -88,11 +110,20 @@ const AddCardForm = ({ onSubmit, onCancel, loading, error }) => {
   });
   const [errors, setErrors] = useState({});
 
+  /**
+   * Update form field and clear associated error
+   * @param {string} field - Field name
+   * @param {any} value - New value
+   */
   const set = (f, v) => {
     setForm((p) => ({ ...p, [f]: v }));
     setErrors((p) => ({ ...p, [f]: null }));
   };
 
+  /**
+   * Validate form fields
+   * @returns {boolean} True if valid
+   */
   const validate = () => {
     const e = {};
     if (!form.cardHolderName.trim()) e.cardHolderName = "Required";
@@ -104,13 +135,16 @@ const AddCardForm = ({ onSubmit, onCancel, loading, error }) => {
     return Object.keys(e).length === 0;
   };
 
+  /**
+   * Handle form submission
+   * @param {Event} ev - Form submit event
+   */
   const handleSubmit = (ev) => {
     ev.preventDefault();
     if (!validate()) return;
     const raw = form.cardNumber.replace(/\s/g, "");
     onSubmit({
       cardHolderName: form.cardHolderName.trim(),
-      cardNumber: raw,
       lastFourDigits: raw.slice(-4),
       expiryMonth: parseInt(form.expiryMonth),
       expiryYear: parseInt(form.expiryYear.length === 2 ? `20${form.expiryYear}` : form.expiryYear),
@@ -119,16 +153,23 @@ const AddCardForm = ({ onSubmit, onCancel, loading, error }) => {
     });
   };
 
-  const inputCn = (err) =>
-    `w-full px-4 py-2.5 rounded-xl border text-sm outline-none bg-white transition-all ${err ? "border-red-300 bg-red-50"
-      : "border-gray-200 focus:border-[#6b7c3f] focus:ring-2 focus:ring-[#6b7c3f]/10"
+  /**
+   * Generate input className based on error state
+   * @param {boolean} hasError - Whether field has error
+   * @returns {string} CSS classes
+   */
+  const inputCn = (hasError) =>
+    `w-full px-4 py-2.5 rounded-xl border text-sm outline-none bg-white transition-all ${
+      hasError
+        ? "border-red-300 bg-red-50"
+        : "border-gray-200 focus:border-[#6b7c3f] focus:ring-2 focus:ring-[#6b7c3f]/10"
     }`;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-md mx-auto w-full">
       <div className="flex items-center justify-between mb-5">
         <h4 className="text-sm font-black text-gray-900">Add Card</h4>
-        <button onClick={onCancel} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors text-sm">✕</button>
+        <button onClick={onCancel} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">✕</button>
       </div>
 
       {error && (
@@ -141,113 +182,150 @@ const AddCardForm = ({ onSubmit, onCancel, loading, error }) => {
         {/* Cardholder Name */}
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Cardholder Name</label>
-          <input type="text" value={form.cardHolderName} onChange={(e) => set("cardHolderName", e.target.value)}
-            placeholder="Enter Cardholder Name" className={inputCn(errors.cardHolderName)} />
+          <input
+            type="text"
+            value={form.cardHolderName}
+            onChange={(e) => set("cardHolderName", e.target.value)}
+            placeholder="Enter Cardholder Name"
+            className={inputCn(!!errors.cardHolderName)}
+          />
           {errors.cardHolderName && <p className="text-xs text-red-500 mt-1">⚠ {errors.cardHolderName}</p>}
         </div>
 
         {/* Card Number */}
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Card Number</label>
-          <input type="text" inputMode="numeric"
+          <input
+            type="text"
+            inputMode="numeric"
             value={formatCardNumber(form.cardNumber)}
             onChange={(e) => set("cardNumber", e.target.value.replace(/\D/g, "").slice(0, 16))}
-            placeholder="•••• •••• •••• ••••" maxLength={19}
-            className={`${inputCn(errors.cardNumber)} font-mono tracking-widest`} />
+            placeholder="•••• •••• •••• ••••"
+            maxLength={19}
+            className={`${inputCn(!!errors.cardNumber)} font-mono tracking-widest`}
+          />
           {errors.cardNumber && <p className="text-xs text-red-500 mt-1">⚠ {errors.cardNumber}</p>}
         </div>
 
-        {/* Expiry */}
+        {/* Expiry Date */}
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Card Expiry Date</label>
           <div className="flex gap-3">
-            <input type="text" inputMode="numeric" value={form.expiryMonth}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={form.expiryMonth}
               onChange={(e) => set("expiryMonth", e.target.value.replace(/\D/g, "").slice(0, 2))}
-              placeholder="MM" maxLength={2}
-              className={`w-24 px-3 py-2.5 rounded-xl border text-sm outline-none bg-white ${errors.expiryMonth ? "border-red-300 bg-red-50" : "border-gray-200 focus:border-[#6b7c3f]"}`} />
-            <input type="text" inputMode="numeric" value={form.expiryYear}
+              placeholder="MM"
+              maxLength={2}
+              className={`w-24 px-3 py-2.5 rounded-xl border text-sm outline-none bg-white ${
+                errors.expiryMonth ? "border-red-300 bg-red-50" : "border-gray-200 focus:border-[#6b7c3f]"
+              }`}
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={form.expiryYear}
               onChange={(e) => set("expiryYear", e.target.value.replace(/\D/g, "").slice(0, 4))}
-              placeholder="YY" maxLength={4}
-              className={`w-24 px-3 py-2.5 rounded-xl border text-sm outline-none bg-white ${errors.expiryYear ? "border-red-300 bg-red-50" : "border-gray-200 focus:border-[#6b7c3f]"}`} />
+              placeholder="YY"
+              maxLength={4}
+              className={`w-24 px-3 py-2.5 rounded-xl border text-sm outline-none bg-white ${
+                errors.expiryYear ? "border-red-300 bg-red-50" : "border-gray-200 focus:border-[#6b7c3f]"
+              }`}
+            />
           </div>
-          {(errors.expiryMonth || errors.expiryYear) && <p className="text-xs text-red-500 mt-1">⚠ Enter a valid expiry date</p>}
+          {(errors.expiryMonth || errors.expiryYear) && (
+            <p className="text-xs text-red-500 mt-1">⚠ Enter valid expiry</p>
+          )}
         </div>
 
-        {/* Card Type */}
+        {/* Card Type Selection */}
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Card Type</label>
           <div className="flex gap-3">
-            {[{ value: "CREDIT", label: "Credit Card" }, { value: "DEBIT", label: "Debit Card" }].map((t) => (
+            {[{ value: "CREDIT", label: "Credit" }, { value: "DEBIT", label: "Debit" }].map((t) => (
               <button
                 key={t.value}
                 type="button"
                 onClick={() => set("cardType", t.value)}
-                className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition-all ${form.cardType === t.value
+                className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                  form.cardType === t.value
                     ? "bg-[#2c3347] text-white border-[#2c3347]"
                     : "bg-white text-gray-600 border-gray-200 hover:border-[#2c3347]/40"
-                  }`}>
+                }`}
+              >
                 {t.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Bank */}
+        {/* Bank Selection */}
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bank Name</label>
           <select value={form.bank} onChange={(e) => set("bank", e.target.value)} className={inputCn(false)}>
-            {BAHRAIN_BANKS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+            {BAHRAIN_BANKS.map((b) => (
+              <option key={b.value} value={b.value}>{b.label}</option>
+            ))}
           </select>
         </div>
 
-        <button type="submit" disabled={loading}
-          className="w-full py-3 mt-1 bg-[#6b7c3f] hover:bg-[#5a6a33] disabled:bg-gray-200
-                     text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2">
-          {loading ? <><Spinner size="sm" /> Linking card…</> : "Add Card"}
+        <button type="submit" disabled={loading} className="w-full py-3 mt-1 bg-[#6b7c3f] hover:bg-[#5a6a33] disabled:bg-gray-200 text-white font-bold rounded-xl">
+          {loading ? <><Spinner size="sm" /> Linking…</> : "Add Card"}
         </button>
       </form>
     </div>
   );
-};
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Transaction table
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Transaction type badge component
+ * 
+ * @param {Object} props - Component props
+ * @param {string} props.type - Transaction type (CREDIT/DEBIT)
+ */
 const TypeBadge = ({ type }) => {
   const isCredit = type === "CREDIT";
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${isCredit ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
-      }`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+      isCredit ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
+    }`}>
       {isCredit ? "Income" : "Expense"}
     </span>
   );
 };
 
-const TxnTable = ({ transactions, loading, transactionsMeta }) => {
+/**
+ * Transaction table component with loading and empty states
+ * 
+ * @param {Object} props - Component props
+ * @param {Array} props.transactions - List of transactions
+ * @param {boolean} props.loading - Loading state
+ * @param {Object} props.transactionsMeta - Pagination metadata
+ */
+const TxnTable = React.memo(({ transactions, loading, transactionsMeta }) => {
   if (loading) {
+    // Loading skeleton
     return (
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-10">#</th>
-              <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Name</th>
-              <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Category</th>
-              <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Type</th>
-              <th className="py-3 px-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+              <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-16">#</th>
+              <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-1/3">Name</th>
+              <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-1/4">Category</th>
+              <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-24">Type</th>
+              <th className="py-3 px-4 text-right text-xs font-semibold text-gray-400 uppercase w-28">Amount</th>
             </tr>
           </thead>
           <tbody>
             {Array.from({ length: 5 }).map((_, i) => (
               <tr key={i} className="border-b border-gray-50 animate-pulse">
-                <td className="py-3 px-3"><div className="h-3 bg-gray-100 rounded w-4" /></td>
-                <td className="py-3 px-3">
-                  <div className="h-3.5 bg-gray-100 rounded w-32 mb-1" />
-                  <div className="h-3 bg-gray-100 rounded w-20" />
-                </td>
-                <td className="py-3 px-3"><div className="h-6 bg-gray-100 rounded-full w-24" /></td>
-                <td className="py-3 px-3"><div className="h-6 bg-gray-100 rounded-full w-16" /></td>
-                <td className="py-3 px-3 text-right"><div className="h-3.5 bg-gray-100 rounded w-16 ml-auto" /></td>
+                <td className="py-3 px-4"><div className="h-3 bg-gray-100 rounded w-4" /></td>
+                <td className="py-3 px-4"><div className="h-3.5 bg-gray-100 rounded w-32" /></td>
+                <td className="py-3 px-4"><div className="h-6 bg-gray-100 rounded-full w-28" /></td>
+                <td className="py-3 px-4"><div className="h-6 bg-gray-100 rounded-full w-20" /></td>
+                <td className="py-3 px-4 text-right"><div className="h-3.5 bg-gray-100 rounded w-16 ml-auto" /></td>
               </tr>
             ))}
           </tbody>
@@ -257,6 +335,7 @@ const TxnTable = ({ transactions, loading, transactionsMeta }) => {
   }
 
   if (!transactions.length) {
+    // Empty state
     return (
       <div className="py-12 text-center">
         <p className="text-3xl mb-2">💳</p>
@@ -267,54 +346,51 @@ const TxnTable = ({ transactions, loading, transactionsMeta }) => {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/60">
-            <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-10">#</th>
-            <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Name</th>
-            <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Category</th>
-            <th className="py-3 px-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Type</th>
-            <th className="py-3 px-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+            <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-16">#</th>
+            <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-1/3">Name</th>
+            <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-1/4">Category</th>
+            <th className="py-3 px-4 text-left text-xs font-semibold text-gray-400 uppercase w-24">Type</th>
+            <th className="py-3 px-4 text-right text-xs font-semibold text-gray-400 uppercase w-28">Amount</th>
           </tr>
         </thead>
         <tbody>
           {transactions.map((txn, idx) => {
             const isCredit = txn.type === "CREDIT";
             return (
-              <tr key={txn.id || idx}
-                className={`border-b border-gray-50 last:border-0 transition-colors ${isCredit ? "hover:bg-emerald-50/30" : "hover:bg-red-50/20"
-                  }`}>
-                {/* # */}
-                <td className="py-3 px-3 text-xs text-gray-400 font-mono">
+              <tr key={txn.id || idx} className={`border-b border-gray-50 last:border-0 ${
+                isCredit ? "hover:bg-emerald-50/30" : "hover:bg-red-50/20"
+              }`}>
+                {/* Row number (accounting for pagination) */}
+                <td className="py-3 px-4 text-xs text-gray-400 font-mono">
                   {idx + 1 + (transactionsMeta.number * TRANSACTIONS_PER_PAGE)}
                 </td>
 
-                {/* Name + date */}
-                <td className="py-3 px-3">
-                  <p className="font-semibold text-gray-800 text-sm leading-tight">
-                    {txn.merchantName || "Transaction"}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {formatTxnDate(txn.transactionDate)}
-                  </p>
+                {/* Merchant name and date */}
+                <td className="py-3 px-4">
+                  <p className="font-semibold text-gray-800 text-sm truncate">{txn.merchantName || "Transaction"}</p>
+                  <p className="text-xs text-gray-400">{formatTxnDate(txn.transactionDate)}</p>
                 </td>
 
-                {/* Category pill */}
-                <td className="py-3 px-3">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                {/* Category pill with icon */}
+                <td className="py-3 px-4">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap">
                     {txn.categoryIcon || "💳"}
-                    <span className="truncate max-w-[70px]">{txn.category || "Other"}</span>
+                    <span className="max-w-[120px] truncate">{txn.category || "Other"}</span>
                   </span>
                 </td>
 
                 {/* Type badge */}
-                <td className="py-3 px-3">
+                <td className="py-3 px-4">
                   <TypeBadge type={txn.type} />
                 </td>
 
-                {/* Amount */}
-                <td className={`py-3 px-3 text-right font-bold text-sm ${isCredit ? "text-emerald-600" : "text-red-500"
-                  }`}>
+                {/* Amount with sign */}
+                <td className={`py-3 px-4 text-right font-bold text-sm ${
+                  isCredit ? "text-emerald-600" : "text-red-500"
+                }`}>
                   {isCredit ? "+" : "−"}{formatBD(txn.amount)}
                 </td>
               </tr>
@@ -324,13 +400,20 @@ const TxnTable = ({ transactions, loading, transactionsMeta }) => {
       </table>
     </div>
   );
-};
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Filters + Sort bar
-// ─────────────────────────────────────────────────────────────────────────────
-const FiltersBar = ({ filters, onChange }) => {
-  // Handle sort change - convert to backend params
+/**
+ * Filters bar component with search, category, and sort controls
+ * 
+ * @param {Object} props - Component props
+ * @param {Object} props.filters - Current filter values
+ * @param {Function} props.onChange - Filter change callback
+ */
+const FiltersBar = React.memo(({ filters, onChange }) => {
+  /**
+   * Handle sort change and convert to backend parameters
+   * @param {string} sortValue - Selected sort option value
+   */
   const handleSortChange = (sortValue) => {
     let sortBy = "transactionDate";
     let sortDir = "DESC";
@@ -348,28 +431,20 @@ const FiltersBar = ({ filters, onChange }) => {
         sortBy = "transactionDate";
         sortDir = "ASC";
         break;
-      case "date_desc":
       default:
         sortBy = "transactionDate";
         sortDir = "DESC";
         break;
     }
 
-    onChange({
-      ...filters,
-      sort: sortValue,
-      sortBy,
-      sortDir,
-      page: 0
-    });
+    onChange({ ...filters, sort: sortValue, sortBy, sortDir, page: 0 });
   };
 
   return (
-    <div className="flex flex-wrap gap-2 mb-4">
-      {/* Search */}
-      <div className="relative flex-1 min-w-32">
-        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <div className="flex flex-wrap gap-3 mb-4">
+      {/* Search input */}
+      <div className="relative flex-[2] min-w-[220px]">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
         </svg>
         <input
@@ -377,35 +452,49 @@ const FiltersBar = ({ filters, onChange }) => {
           value={filters.search || ""}
           onChange={(e) => onChange({ ...filters, search: e.target.value, page: 0 })}
           placeholder="Search transactions"
-          className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f] transition-all" />
+          className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f]"
+        />
       </div>
 
-      {/* Category */}
+      {/* Category filter dropdown */}
       <select
         value={filters.category || ""}
         onChange={(e) => onChange({ ...filters, category: e.target.value, page: 0 })}
-        className="text-xs px-3 py-2 rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f] bg-white">
+        className="flex-1 min-w-[160px] px-3 py-2 text-sm rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f] bg-white"
+      >
         <option value="">All Categories</option>
-        {TX_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+        {TX_CATEGORIES.map((c) => (
+          <option key={c.value} value={c.value}>{c.label}</option>
+        ))}
       </select>
 
-      {/* Sort */}
+      {/* Sort dropdown */}
       <select
         value={filters.sort || "date_desc"}
         onChange={(e) => handleSortChange(e.target.value)}
-        className="text-xs px-3 py-2 rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f] bg-white">
-        {SORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        className="w-40 px-3 py-2 text-sm rounded-lg border border-gray-200 outline-none focus:border-[#6b7c3f] bg-white"
+      >
+        {SORT_OPTIONS.map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
       </select>
     </div>
   );
-};
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pagination
-// ─────────────────────────────────────────────────────────────────────────────
-const Pagination = ({ page, totalPages, totalElements, onChange }) => {
+/**
+ * Pagination component for transaction table
+ * 
+ * @param {Object} props - Component props
+ * @param {number} props.page - Current page number (0-based)
+ * @param {number} props.totalPages - Total number of pages
+ * @param {number} props.totalElements - Total number of items
+ * @param {Function} props.onChange - Page change callback
+ */
+const Pagination = React.memo(({ page, totalPages, totalElements, onChange }) => {
   if (totalPages <= 1) return null;
 
+  // Calculate visible page numbers (show up to 5 pages)
   const start = Math.max(0, Math.min(page - 2, totalPages - 5));
   const visible = [];
   for (let i = start; i < Math.min(start + 5, totalPages); i++) visible.push(i);
@@ -416,37 +505,77 @@ const Pagination = ({ page, totalPages, totalElements, onChange }) => {
         {totalElements} transaction{totalElements !== 1 ? "s" : ""}
       </p>
       <div className="flex items-center gap-1">
-        <button onClick={() => onChange(page - 1)} disabled={page === 0}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm">‹</button>
+        {/* Previous page button */}
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page === 0}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30"
+          aria-label="Previous page"
+        >
+          ‹
+        </button>
 
-        {visible[0] > 0 && <>
-          <button onClick={() => onChange(0)} className="w-7 h-7 flex items-center justify-center rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100">1</button>
-          {visible[0] > 1 && <span className="text-gray-300 text-xs px-0.5">…</span>}
-        </>}
+        {/* First page if not in visible range */}
+        {visible[0] > 0 && (
+          <>
+            <button
+              onClick={() => onChange(0)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100"
+            >
+              1
+            </button>
+            {visible[0] > 1 && <span className="text-gray-300 text-xs px-0.5">…</span>}
+          </>
+        )}
 
+        {/* Visible page numbers */}
         {visible.map((n) => (
-          <button key={n} onClick={() => onChange(n)}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-semibold transition-all ${page === n ? "bg-[#2c3347] text-white" : "text-gray-500 hover:bg-gray-100"
-              }`}>{n + 1}</button>
+          <button
+            key={n}
+            onClick={() => onChange(n)}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold ${
+              page === n ? "bg-[#2c3347] text-white" : "text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            {n + 1}
+          </button>
         ))}
 
-        {visible[visible.length - 1] < totalPages - 1 && <>
-          {visible[visible.length - 1] < totalPages - 2 && <span className="text-gray-300 text-xs px-0.5">…</span>}
-          <button onClick={() => onChange(totalPages - 1)}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-semibold ${page === totalPages - 1 ? "bg-[#2c3347] text-white" : "text-gray-500 hover:bg-gray-100"
-              }`}>{totalPages}</button>
-        </>}
+        {/* Last page if not in visible range */}
+        {visible[visible.length - 1] < totalPages - 1 && (
+          <>
+            {visible[visible.length - 1] < totalPages - 2 && (
+              <span className="text-gray-300 text-xs px-0.5">…</span>
+            )}
+            <button
+              onClick={() => onChange(totalPages - 1)}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold ${
+                page === totalPages - 1 ? "bg-[#2c3347] text-white" : "text-gray-500 hover:bg-gray-100"
+              }`}
+            >
+              {totalPages}
+            </button>
+          </>
+        )}
 
-        <button onClick={() => onChange(page + 1)} disabled={page >= totalPages - 1}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm">›</button>
+        {/* Next page button */}
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page >= totalPages - 1}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30"
+          aria-label="Next page"
+        >
+          ›
+        </button>
       </div>
     </div>
   );
-};
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Main My Card Tab component
+ * Manages card linking and transaction display
+ */
 const MyCardTab = () => {
   const {
     hasLinkedCard,
@@ -457,8 +586,6 @@ const MyCardTab = () => {
     transactionsLoading,
     fetchTransactions,
     linkCard,
-    syncing,
-    syncTransactions,
     fetchAccounts,
   } = useInsights();
 
@@ -467,6 +594,7 @@ const MyCardTab = () => {
   const [cardError, setCardError] = useState(null);
   const [successMsg, setSuccessMsg] = useState("");
 
+  // Filter state
   const [filters, setFilters] = useState({
     search: "",
     category: "",
@@ -476,7 +604,17 @@ const MyCardTab = () => {
     page: 0,
   });
 
-  // Fetch when filters change
+  // Memoized filter change handler
+  const handleFilterChange = useCallback((newFilters) => {
+    setFilters(newFilters);
+  }, []);
+
+  // Memoized page change handler
+  const handlePageChange = useCallback((newPage) => {
+    setFilters((f) => ({ ...f, page: newPage }));
+  }, []);
+
+  // Fetch transactions when filters change
   useEffect(() => {
     if (!hasLinkedCard) return;
 
@@ -497,94 +635,83 @@ const MyCardTab = () => {
     filters.sortBy,
     filters.sortDir,
     hasLinkedCard,
-    fetchTransactions
+    fetchTransactions,
   ]);
 
-  const flash = (msg) => {
+  /**
+   * Display temporary success message
+   * @param {string} msg - Message to display
+   */
+  const flash = useCallback((msg) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(""), 4000);
-  };
+  }, []);
 
-  const handleLinkCard = async (cardData) => {
-    setCardLoading(true);
-    setCardError(null);
-    try {
-      await linkCard(cardData);
-      // Close form immediately
-      setShowForm(false);
-      // Refresh accounts to get the new card
-      await fetchAccounts();
-      // Fetch first page of transactions
-      await fetchTransactions({ page: 0 });
-      flash("Card linked! Transactions are being synced.");
-    } catch (err) {
-      setCardError(err.message || "Failed to link card. Please try again.");
-    } finally {
-      setCardLoading(false);
-    }
-  };
+  /**
+   * Handle card linking
+   * @param {Object} cardData - Card data from form
+   */
+  const handleLinkCard = useCallback(
+    async (cardData) => {
+      setCardLoading(true);
+      setCardError(null);
+      try {
+        await linkCard(cardData);
+        setShowForm(false);
+        await fetchAccounts();
+        await fetchTransactions({ page: 0 });
+        flash("Card linked! Transactions are syncing.");
+      } catch (err) {
+        setCardError(err.message || "Failed to link card");
+      } finally {
+        setCardLoading(false);
+      }
+    },
+    [linkCard, fetchAccounts, fetchTransactions, flash]
+  );
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Card visual */}
-      {accountsLoading ? (
-        <div className="w-full max-w-sm mx-auto h-44 bg-gray-100 rounded-2xl animate-pulse" />
-      ) : (
-        <CardVisual
-          account={primaryAccount}
-          onAddCard={() => {
-            setShowForm(true);
-            setCardError(null);
-          }}
-        />
-      )}
+    <div className="flex flex-col gap-6">
+      {/* Card visual section */}
+      <div className="flex justify-center">
+        {accountsLoading ? (
+          <div className="w-full max-w-md h-44 bg-gray-100 rounded-2xl animate-pulse" />
+        ) : (
+          <CardVisual account={primaryAccount} onAddCard={() => setShowForm(true)} />
+        )}
+      </div>
 
-      {/* Add card form - only show if no card AND form is open */}
+      {/* Add card form - only shown when no card and form is open */}
       {!hasLinkedCard && showForm && (
         <AddCardForm
           onSubmit={handleLinkCard}
-          onCancel={() => {
-            setShowForm(false);
-            setCardError(null);
-          }}
+          onCancel={() => setShowForm(false)}
           loading={cardLoading}
           error={cardError}
         />
       )}
 
-      {/* Actions (card linked, form closed) */}
-      {hasLinkedCard && !showForm && (
-        <div className="flex gap-2 justify-center">
-          <button
-            onClick={() => syncTransactions()}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-[#2c3347]
-                       bg-[#2c3347]/5 hover:bg-[#2c3347]/10 rounded-lg transition-colors disabled:opacity-50">
-            {syncing ? <><Spinner size="sm" color="#2c3347" /> Syncing…</> : <>↻ Sync transactions</>}
-          </button>
-        </div>
-      )}
-
-      {/* Success toast */}
+      {/* Success message toast */}
       {successMsg && (
-        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100
-                        rounded-xl px-3 py-2.5 text-xs text-emerald-700 font-medium">
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5 text-xs text-emerald-700 font-medium max-w-md mx-auto">
           ✓ {successMsg}
         </div>
       )}
 
-      {/* Transactions section - only show if card is linked */}
+      {/* Transactions section - only shown when card is linked and form is closed */}
       {hasLinkedCard && !showForm && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-bold text-gray-800">Recent transactions</h4>
+        <div className="w-full">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-base font-bold text-gray-800">Recent transactions</h4>
             {transactionsMeta.totalElements > 0 && (
               <span className="text-xs text-gray-400">{transactionsMeta.totalElements} transactions</span>
             )}
           </div>
 
-          <FiltersBar filters={filters} onChange={setFilters} />
+          {/* Filter controls */}
+          <FiltersBar filters={filters} onChange={handleFilterChange} />
 
+          {/* Transaction table */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <TxnTable
               transactions={transactions}
@@ -593,18 +720,19 @@ const MyCardTab = () => {
             />
           </div>
 
+          {/* Pagination */}
           <Pagination
             page={filters.page}
             totalPages={transactionsMeta.totalPages}
             totalElements={transactionsMeta.totalElements}
-            onChange={(p) => setFilters((f) => ({ ...f, page: p }))}
+            onChange={handlePageChange}
           />
         </div>
       )}
 
-      {/* No card nudge - only show if no card AND form is not open */}
+      {/* No card nudge - only shown when no card, not loading, and form is closed */}
       {!hasLinkedCard && !accountsLoading && !showForm && (
-        <p className="text-center text-xs text-gray-400 mt-1">
+        <p className="text-center text-xs text-gray-400 mt-2">
           Tap the card above to link your bank card and start tracking transactions.
         </p>
       )}
@@ -612,4 +740,4 @@ const MyCardTab = () => {
   );
 };
 
-export default MyCardTab;
+export default React.memo(MyCardTab);

@@ -26,6 +26,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Service responsible for generating and managing financial reports.
+ * Uses Groq AI to generate natural language summaries of user's financial data.
+ * 
+ * @author PathWise Team
+ * @version 1.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -48,18 +55,28 @@ public class ReportService {
 
     private static final DateTimeFormatter TITLE_FORMAT = DateTimeFormatter.ofPattern("MMM yyyy");
 
-    // Called from controller — manual trigger kept for testing
+    /**
+     * Generates a report for the current authenticated user.
+     * 
+     * @return Generated report
+     */
     public Report generateReport() {
         return generateReportForUser(getCurrentUser());
     }
 
-    // Called by MonthlyReportScheduler — no security context needed
+    /**
+     * Core report generation logic for a specific user.
+     * Fetches analytics data, anomalies, and constructs a prompt for Groq AI.
+     * 
+     * @param user User entity
+     * @return Generated report
+     */
     public Report generateReportForUser(User user) {
         log.info("Generating report for user: {}", user.getEmail());
 
         AnalyticsResponse analytics = analyticsService.getAnalyticsForUser(user, 3);
 
-        // Calculate savings rate here since it was removed from AnalyticsResponse
+        // Calculate savings rate
         BigDecimal savingsRate = analytics.getTotalIncome().compareTo(BigDecimal.ZERO) > 0
                 ? analytics.getTotalIncome()
                         .subtract(analytics.getTotalExpenses())
@@ -68,6 +85,7 @@ public class ReportService {
                         .setScale(1, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        // Get active anomalies summary
         String anomalySummary = anomalyRepository
                 .findByUserIdAndIsDismissedFalseOrderByCreatedAtDesc(user.getId())
                 .stream()
@@ -77,10 +95,12 @@ public class ReportService {
                         a.getMessage()))
                 .collect(Collectors.joining("\n"));
 
+        // Get spending by category summary
         String categorySummary = analytics.getSpendingByCategory().entrySet().stream()
                 .map(e -> String.format("- %s: BD %.2f", e.getKey(), e.getValue()))
                 .collect(Collectors.joining("\n"));
 
+        // Get monthly breakdown summary
         String monthlySummary = analytics.getMonthlyBreakdown().stream()
                 .map(m -> String.format("- %s: Income BD %.2f | Expenses BD %.2f | Net BD %.2f",
                         m.getMonth(),
@@ -89,6 +109,7 @@ public class ReportService {
                         m.getIncome().subtract(m.getExpenses())))
                 .collect(Collectors.joining("\n"));
 
+        // Build prompt for Groq AI
         String prompt = String.format("""
                 Generate a concise personal finance report for the last 3 months.
 
@@ -126,9 +147,11 @@ public class ReportService {
                 anomalySummary.isEmpty() ? "No anomalies detected" : anomalySummary
         );
 
+        // Call Groq API
         String content = callGroq(prompt);
         LocalDate now = LocalDate.now();
 
+        // Create and save report
         Report report = Report.builder()
                 .user(user)
                 .title("Financial Report - " + now.format(TITLE_FORMAT))
@@ -139,11 +162,15 @@ public class ReportService {
                 .build();
 
         Report saved = reportRepository.save(report);
-        log.info("✅ Report saved: {}", saved.getTitle());
+        log.info("Report saved: {}", saved.getTitle());
         return saved;
     }
 
-    // Lightweight list for history screen — no content field
+    /**
+     * Retrieves lightweight report history for the current user.
+     * 
+     * @return List of report summaries (id, title, createdAt)
+     */
     public List<ReportSummary> getReportHistory() {
         User user = getCurrentUser();
         return reportRepository.findByUserIdOrderByCreatedAtDesc(user.getId())
@@ -152,7 +179,13 @@ public class ReportService {
                 .toList();
     }
 
-    // Full report when user clicks from history
+    /**
+     * Retrieves a full report by its ID, verifying ownership.
+     * 
+     * @param reportId Report UUID
+     * @return Full report entity
+     * @throws IllegalArgumentException if report not found or doesn't belong to user
+     */
     public Report getReport(UUID reportId) {
         User user = getCurrentUser();
         Report report = reportRepository.findById(reportId)
@@ -163,6 +196,12 @@ public class ReportService {
         return report;
     }
 
+    /**
+     * Calls Groq API to generate report content.
+     * 
+     * @param prompt Constructed prompt with user financial data
+     * @return AI-generated report content
+     */
     private String callGroq(String prompt) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -183,7 +222,7 @@ public class ReportService {
             Map firstChoice = (Map) choices.get(0);
             Map msg = (Map) firstChoice.get("message");
             String content = (String) msg.get("content");
-            log.info("✅ Report generated ({} chars)", content.length());
+            log.info("Report generated ({} chars)", content.length());
             return content;
         } catch (Exception e) {
             log.error("Groq report generation failed: {}", e.getMessage());
@@ -191,6 +230,12 @@ public class ReportService {
         }
     }
 
+    /**
+     * Retrieves the current authenticated user.
+     * 
+     * @return User entity
+     * @throws UserNotFoundException if user not found
+     */
     private User getCurrentUser() {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
@@ -198,5 +243,8 @@ public class ReportService {
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
+    /**
+     * DTO for report history entries (lightweight without content).
+     */
     public record ReportSummary(UUID id, String title, LocalDateTime createdAt) {}
 }

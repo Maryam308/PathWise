@@ -19,6 +19,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * REST controller for Plaid integration operations.
+ * Handles bank account linking, transaction syncing, and account management.
+ * 
+ * @author PathWise Team
+ * @version 1.0
+ */
 @RestController
 @RequestMapping("/api/plaid")
 @RequiredArgsConstructor
@@ -27,47 +34,66 @@ public class PlaidController {
     private final PlaidService plaidService;
     private final TransactionService transactionService;
 
-    //  Full Plaid Flow Endpoints 
-
+    /**
+     * Creates a link token for initializing Plaid Link in the frontend.
+     * 
+     * @param request Request containing bankId for display purposes
+     * @return PlaidLinkResponse containing the link token
+     */
     @PostMapping("/create-link-token")
     public ResponseEntity<PlaidLinkResponse> createLinkToken(@RequestBody Map<String, String> request) {
-        String bankId = request.get("bankId"); // User selected "NBB", "BBK", etc. (for display only)
+        String bankId = request.get("bankId");
         String token = plaidService.createLinkToken();
         return ResponseEntity.ok(PlaidLinkResponse.builder().linkToken(token).build());
     }
 
+    /**
+     * Exchanges a public token for an access token and saves the account.
+     * 
+     * @param request Request containing public token and bank information
+     * @return Success message
+     */
     @PostMapping("/exchange-token")
     public ResponseEntity<String> exchangeToken(@RequestBody Map<String, Object> request) {
         String publicToken = (String) request.get("publicToken");
         String bankId = (String) request.get("bankId");
-        String institutionName = (String) request.get("institutionName"); // From Plaid (ignored)
+        String institutionName = (String) request.get("institutionName");
         
         plaidService.exchangeTokenAndSave(publicToken, bankId, institutionName);
         return ResponseEntity.ok("Bank account linked successfully!");
     }
 
-    // Manual card linking endpoint 
-
+    /**
+     * Links a card manually without using Plaid Link flow.
+     * 
+     * @param request Card linking request containing card details
+     * @return Success message
+     */
     @PostMapping("/link-card")
     public ResponseEntity<String> linkCard(@Valid @RequestBody LinkCardRequest request) {
         plaidService.linkCard(request);
         return ResponseEntity.ok("Bank card linked successfully!");
     }
 
-    // Sync transactions 
-
-    @PostMapping("/sync")
-    public ResponseEntity<String> syncTransactions() {
-        plaidService.syncTransactions();
-        return ResponseEntity.ok("Transactions synced successfully!");
-    }
-
-    // Get transactions with pagination, search, filter, and sort
-
+    /**
+     * Retrieves paginated transactions with optional filters.
+     * 
+     * @param search Search term for merchant name
+     * @param category Category filter
+     * @param type Transaction type filter (CREDIT/DEBIT)
+     * @param month Month filter
+     * @param year Year filter
+     * @param sortBy Field to sort by
+     * @param sortDir Sort direction (ASC/DESC)
+     * @param page Page number (0-based)
+     * @param size Page size
+     * @return Paginated list of transactions
+     */
     @GetMapping("/transactions")
     public ResponseEntity<Page<TransactionResponse>> getTransactions(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String type,
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) String sortBy,
@@ -77,10 +103,14 @@ public class PlaidController {
 
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(
-                transactionService.getTransactions(search, category, month, year, sortBy, sortDir, pageable));
+                transactionService.getTransactions(search, category, type, month, year, sortBy, sortDir, pageable));
     }
 
-    // Get all accounts for the current user
+    /**
+     * Retrieves all linked accounts for the authenticated user.
+     * 
+     * @return List of account responses
+     */
     @GetMapping("/accounts")
     public ResponseEntity<List<AccountResponse>> getAccounts() {
         List<Account> accounts = plaidService.getCurrentUserAccounts();
@@ -90,6 +120,12 @@ public class PlaidController {
         return ResponseEntity.ok(responses);
     }
 
+    /**
+     * Maps an Account entity to an AccountResponse DTO.
+     * 
+     * @param account Account entity
+     * @return AccountResponse DTO
+     */
     private AccountResponse mapToAccountResponse(Account account) {
         return AccountResponse.builder()
                 .id(account.getId())
